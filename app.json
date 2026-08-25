@@ -1,0 +1,41 @@
+{
+  "expo": {
+    "name": "Nutrideel",
+    "slug": "nutrideel",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "backgroundColor": "#020617"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "package": "com.nutrideel.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#020617"
+      },
+      "permissions": ["SCHEDULE_EXACT_ALARM", "POST_NOTIFICATIONS"]
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.nutrideel.app"
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/adaptive-icon.png",
+          "color": "#10b981"
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "2e129b93-e73e-4a58-9f6d-cf0719ed3cf8"
+      }
+    }
+  }
+}
