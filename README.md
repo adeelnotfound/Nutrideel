@@ -18,46 +18,40 @@ Nutrideel is a calorie and macro tracker I built as a portfolio project after ge
 
 ## Screenshots
 
-<div align="center">
-
-<img src="./assets/nutrideel-preview.jpg" alt="Nutrideel app preview" width="100%" />
-
-</div>
+<p align="center">
+  <img src="./assets/nutrideel-preview.jpg" alt="Nutrideel app preview" width="100%" />
+</p>
 
 ### Onboarding
 
-<table>
-  <tr>
-    <td align="center"><img src="./assets/screenshots/01-welcome.jpg" width="220" alt="Welcome and profile setup" /><br/><sub><b>Welcome</b><br/>Profile setup</sub></td>
-    <td align="center"><img src="./assets/screenshots/02-body-stats.jpg" width="220" alt="Body stats" /><br/><sub><b>Body stats</b><br/>Age, height & weight</sub></td>
-    <td align="center"><img src="./assets/screenshots/03-activity-level.jpg" width="220" alt="Activity level" /><br/><sub><b>Activity level</b><br/>Daily movement</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="./assets/screenshots/04-goal.jpg" width="220" alt="Goal and weekly target" /><br/><sub><b>Goal</b><br/>Weekly target</sub></td>
-    <td align="center"><img src="./assets/screenshots/05-review-targets.jpg" width="220" alt="Calculated nutrition targets" /><br/><sub><b>Review</b><br/>Calorie & macro targets</sub></td>
-    <td></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="./assets/screenshots/01-welcome.jpg" alt="Welcome and profile setup" width="220" />
+  <img src="./assets/screenshots/02-body-stats.jpg" alt="Body stats" width="220" />
+  <img src="./assets/screenshots/03-activity-level.jpg" alt="Activity level" width="220" />
+  <img src="./assets/screenshots/04-goal.jpg" alt="Goal and weekly target" width="220" />
+  <img src="./assets/screenshots/05-review-targets.jpg" alt="Calculated nutrition targets" width="220" />
+</p>
 
 ### Daily tracking & insights
 
-<table>
-  <tr>
-    <td align="center"><img src="./assets/screenshots/06-today.jpg" width="220" alt="Daily dashboard" /><br/><sub><b>Today</b><br/>Calories, macros & logs</sub></td>
-    <td align="center"><img src="./assets/screenshots/11-history.jpg" width="220" alt="History" /><br/><sub><b>History</b><br/>Day-by-day tracking</sub></td>
-    <td align="center"><img src="./assets/screenshots/12-analytics.jpg" width="220" alt="Progress and analytics" /><br/><sub><b>Analytics</b><br/>Weight & intake trends</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="./assets/screenshots/07-profile.jpg" width="220" alt="Profile and preferences" /><br/><sub><b>Profile</b><br/>Units & settings</sub></td>
-    <td align="center"><img src="./assets/screenshots/08-reminders.jpg" width="220" alt="Reminders and AI settings" /><br/><sub><b>Reminders</b><br/>Local notifications</sub></td>
-    <td align="center"><img src="./assets/screenshots/09-ai-settings.jpg" width="220" alt="AI model settings" /><br/><sub><b>AI setup</b><br/>Model selection</sub></td>
-  </tr>
-  <tr>
-    <td align="center"><img src="./assets/screenshots/10-ai-coach.jpg" width="220" alt="AI nutrition coach" /><br/><sub><b>AI Coach</b><br/>Context-aware nutrition chat</sub></td>
-    <td></td>
-    <td></td>
-  </tr>
-</table>
+<p align="center">
+  <img src="./assets/screenshots/06-today.jpg" alt="Daily dashboard" width="220" />
+  <img src="./assets/screenshots/11-history.jpg" alt="History" width="220" />
+  <img src="./assets/screenshots/12-analytics.jpg" alt="Progress and analytics" width="220" />
+  <img src="./assets/screenshots/07-profile.jpg" alt="Profile and preferences" width="220" />
+  <img src="./assets/screenshots/08-reminders.jpg" alt="Reminders and AI settings" width="220" />
+</p>
+
+### AI coach
+
+<p align="center">
+  <img src="./assets/screenshots/09-ai-settings.jpg" alt="AI model settings" width="220" />
+  <img src="./assets/screenshots/10-ai-coach.jpg" alt="AI nutrition coach" width="220" />
+</p>
+
+> **Note:** Keep the `assets/` folder alongside this `README.md` in the repository. The image paths above are relative paths, so copying only the README will produce broken-image icons.
+
+---
 
 ## Why I built it
 
