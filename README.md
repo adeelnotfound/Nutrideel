@@ -32,7 +32,6 @@ Nutrideel is a calorie and macro tracker I built as a portfolio project after ge
 
 <p align="center"> <img src="./assets/09-ai-settings.jpg" alt="AI model settings" width="220" /> <img src="./assets/10-ai-coach.jpg" alt="AI nutrition coach" width="220" /> </p>
 
-> **Note:** Keep the `assets/` folder alongside this `README.md` in the repository. The image paths above are relative paths, so copying only the README will produce broken-image icons.
 
 ---
 
