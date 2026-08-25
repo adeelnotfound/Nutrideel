@@ -18,36 +18,19 @@ Nutrideel is a calorie and macro tracker I built as a portfolio project after ge
 
 ## Screenshots
 
-<p align="center">
-  <img src="./assets/nutrideel-preview.jpg" alt="Nutrideel app preview" width="100%" />
-</p>
+<p align="center"> <img src="./assets/nutrideel-preview.jpg" alt="Nutrideel app preview" width="100%" /> </p>
 
 ### Onboarding
 
-<p align="center">
-  <img src="./assets/screenshots/01-welcome.jpg" alt="Welcome and profile setup" width="220" />
-  <img src="./assets/screenshots/02-body-stats.jpg" alt="Body stats" width="220" />
-  <img src="./assets/screenshots/03-activity-level.jpg" alt="Activity level" width="220" />
-  <img src="./assets/screenshots/04-goal.jpg" alt="Goal and weekly target" width="220" />
-  <img src="./assets/screenshots/05-review-targets.jpg" alt="Calculated nutrition targets" width="220" />
-</p>
+<p align="center"> <img src="./assets/01-welcome.jpg" alt="Welcome and profile setup" width="220" /> <img src="./assets/02-body-stats.jpg" alt="Body stats" width="220" /> <img src="./assets/03-activity-level.jpg" alt="Activity level" width="220" /> <img src="./assets/04-goal.jpg" alt="Goal and weekly target" width="220" /> <img src="./assets/05-review-targets.jpg" alt="Calculated nutrition targets" width="220" /> </p>
 
 ### Daily tracking & insights
 
-<p align="center">
-  <img src="./assets/screenshots/06-today.jpg" alt="Daily dashboard" width="220" />
-  <img src="./assets/screenshots/11-history.jpg" alt="History" width="220" />
-  <img src="./assets/screenshots/12-analytics.jpg" alt="Progress and analytics" width="220" />
-  <img src="./assets/screenshots/07-profile.jpg" alt="Profile and preferences" width="220" />
-  <img src="./assets/screenshots/08-reminders.jpg" alt="Reminders and AI settings" width="220" />
-</p>
+<p align="center"> <img src="./assets/06-today.jpg" alt="Daily dashboard" width="220" /> <img src="./assets/11-history.jpg" alt="History" width="220" /> <img src="./assets/12-analytics.jpg" alt="Progress and analytics" width="220" /> <img src="./assets/07-profile.jpg" alt="Profile and preferences" width="220" /> <img src="./assets/08-reminders.jpg" alt="Reminders and AI settings" width="220" /> </p>
 
 ### AI coach
 
-<p align="center">
-  <img src="./assets/screenshots/09-ai-settings.jpg" alt="AI model settings" width="220" />
-  <img src="./assets/screenshots/10-ai-coach.jpg" alt="AI nutrition coach" width="220" />
-</p>
+<p align="center"> <img src="./assets/09-ai-settings.jpg" alt="AI model settings" width="220" /> <img src="./assets/10-ai-coach.jpg" alt="AI nutrition coach" width="220" /> </p>
 
 > **Note:** Keep the `assets/` folder alongside this `README.md` in the repository. The image paths above are relative paths, so copying only the README will produce broken-image icons.
 
