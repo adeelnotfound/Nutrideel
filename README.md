@@ -56,11 +56,19 @@ Most calorie trackers either want a monthly fee, sell your data, or bury the act
 
 **AI Coach — bring your own key, from any of 13 providers**
 - A chat interface that knows your real numbers — today's intake, your averages, your trends — and answers accordingly
-- Choose from Google Gemini, OpenAI, Anthropic Claude, Groq, xAI Grok, OpenRouter, Mistral, DeepSeek, Together AI, Fireworks AI, DeepInfra, Perplexity, or any OpenAI-compatible custom endpoint (self-hosted, Ollama, LM Studio, etc.) — or run fully offline with a built-in heuristic engine that never needs a key or a connection
+- Choose from Google Gemini, OpenAI, Anthropic Claude, Groq, xAI Grok, OpenRouter, Mistral, DeepSeek, Together AI, Fireworks AI, DeepInfra, Perplexity, or any OpenAI-compatible custom endpoint (self-hosted, Ollama, LM Studio, etc.) — or run fully offline with the built-in offline engine, which never needs a key or a connection
 - Requests go straight from your device to the provider you pick; Nutrideel has no server in between and never sees your key
 - API keys are encrypted at rest with `expo-secure-store` (backed by the Android Keystore / iOS Keychain), never stored in plain text
-- Photo logging automatically falls back to a text-only estimate from your typed note on models without vision support, and to the offline dictionary if there's nothing usable to send
+- Photo logging automatically falls back to a text-only estimate from your typed note on models without vision support, and to the offline engine if there's nothing usable to send
 - Every AI feature degrades gracefully to offline mode on any error — a bad key, a rate limit, no signal — nothing ever hard-fails
+
+**The offline engine**
+- ~85 recognized foods spanning South Asian mains, rice and grains, pasta, fast food, proteins, dairy and breakfast items, produce, and drinks — each with real per-100g macros
+- Parses actual quantities out of what you type — "200g chicken breast," "2 eggs," "150ml milk," "3 slices of bread" — not just container words like "bowl" or "plate"
+- Handles multi-ingredient meals: "chicken and rice" or "eggs, toast, and orange juice" get split into components, matched individually, and summed
+- Falls back to a category-aware estimate (protein/carb/drink/snack/etc.) for anything unrecognized, rather than one fixed generic guess regardless of what was typed
+- Tolerates small typos without silently falling through to the generic fallback
+- Needs no API key, no account, and no network connection — this is what runs when you pick "Offline Engine" in AI Access, or automatically when an AI call fails
 
 **The rest**
 - Five-step onboarding that calculates your calorie/macro targets from your actual stats (Mifflin-St Jeor BMR, activity multiplier)
@@ -129,7 +137,8 @@ nutrideel/
 │   ├── services/
 │   │   ├── storage.ts             # AsyncStorage data layer + encrypted key storage
 │   │   ├── aiProviders.ts         # Registry of all 13 providers + the offline engine
-│   │   ├── aiService.ts           # Offline engine + multi-provider request dispatch
+│   │   ├── aiService.ts           # Multi-provider request dispatch + AI coach context
+│   │   ├── offlineFoodEngine.ts   # Offline food estimation — dictionary, quantity parsing, fallback
 │   │   └── notificationService.ts
 │   ├── screens/
 │   └── components/
@@ -142,6 +151,10 @@ nutrideel/
 ## Adding another AI provider
 
 Every provider is a single entry in `src/services/aiProviders.ts` — no changes needed anywhere else. An entry needs an `apiFormat` (`'gemini' | 'openai' | 'anthropic'`, whichever request shape the provider speaks), a `baseUrl`, whether it needs a key, whether it supports vision, and a list of models. If a provider needs a genuinely new request shape, add a `callXFormat` function next to `callOpenAIFormat`/`callGeminiFormat`/`callAnthropicFormat` in `aiService.ts` and route to it from `callAIProvider`.
+
+## Extending the offline engine
+
+The offline dictionary lives entirely in `src/services/offlineFoodEngine.ts`. Adding a food is one entry in the `DISHES` array — keywords (including common misspellings/aliases), a category, per-100g macros, and a default serving size; countable foods (eggs, slices, roti) can also set `unitGrams`/`unitLabel` so "3 eggs" parses correctly. No other file needs to change.
 
 ## What's not in here (yet)
 
