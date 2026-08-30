@@ -173,6 +173,8 @@ export interface SavedFood {
   frequency: number;
   last_used_at: string;
   sort_order: number;
+  /** ISO timestamps of individual logging events, most recent last, capped in storage.ts. Used to compute windowed (e.g. 30-day) frequency; `frequency` above remains the all-time count. */
+  usage_history?: string[];
 }
 
 export interface SavedMeal {
@@ -184,6 +186,13 @@ export interface SavedMeal {
   frequency: number;
   last_used_at: string;
   sort_order: number;
+  usage_history?: string[];
+}
+
+export type FrequentWindow = 'all' | '30d' | '90d';
+
+export interface SavedItemsSettings {
+  frequentWindow: FrequentWindow;
 }
 
 export interface HypotheticalMeal {
@@ -213,12 +222,25 @@ export interface AIMessage {
   }[];
 }
 
+export interface MealReminderConfig {
+  enabled: boolean;
+  time: string; // "08:00"
+}
+
 export interface NotificationSettings {
   enabled: boolean;
   daily_reminder_time: string; // "20:00"
   days_of_week: number[]; // 0 = Sun, 1 = Mon ... 6 = Sat
   reminder_type: 'incomplete_log' | 'water' | 'weigh_in';
   last_notified_date?: string;
+  /** 'single' (default) keeps the existing one-reminder-a-day behavior above.
+   * 'per_meal' schedules independent breakfast/lunch/dinner reminders instead. */
+  mode: 'single' | 'per_meal';
+  meal_reminders: {
+    breakfast: MealReminderConfig;
+    lunch: MealReminderConfig;
+    dinner: MealReminderConfig;
+  };
 }
 
 export interface ParsedFoodItem {

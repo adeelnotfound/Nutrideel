@@ -1,12 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, Alert, Switch } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { radius } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { UserProfile, WeightUnit, HeightUnit, NotificationSettings } from '../../types';
 import { storage } from '../../services/storage';
 import { convertWeightFromKg, convertHeightFromCm } from '../../utils/calculations';
-import { syncDailyReminder, getNotificationPermissionStatus } from '../../services/notificationService';
+import { syncReminders, getNotificationPermissionStatus } from '../../services/notificationService';
 import AIAccessCard from '../common/AIAccessCard';
+import EditProfileModal from './EditProfileModal';
 import { useToast } from '../common/ToastProvider';
 import { haptics } from '../../utils/haptics';
 
@@ -17,6 +19,11 @@ interface Props {
 }
 
 const REMINDER_TIMES = ['08:00', '12:00', '18:00', '20:00', '21:00'];
+const MEAL_REMINDER_TIMES: Record<'breakfast' | 'lunch' | 'dinner', string[]> = {
+  breakfast: ['06:30', '07:30', '08:00', '09:00'],
+  lunch: ['12:00', '12:30', '13:00', '14:00'],
+  dinner: ['18:00', '19:00', '20:00', '21:00'],
+};
 const REMINDER_TYPES: { id: NotificationSettings['reminder_type']; label: string }[] = [
   { id: 'incomplete_log', label: 'Log Reminder' },
   { id: 'water', label: 'Water' },
@@ -31,6 +38,7 @@ export default function ProfileView({ profile, onUpdateProfile, onResetData }: P
   const [permissionDenied, setPermissionDenied] = useState(false);
   const [adaptiveEnabled, setAdaptiveEnabled] = useState(() => storage.getAdaptiveGoalsEnabled());
   const adaptiveModel = storage.getAdaptiveGoalsLastModel();
+  const [editProfileOpen, setEditProfileOpen] = useState(false);
 
   useEffect(() => {
     getNotificationPermissionStatus().then((status) => setPermissionDenied(status === 'denied'));
@@ -39,11 +47,22 @@ export default function ProfileView({ profile, onUpdateProfile, onResetData }: P
   const updateNotifSettings = async (next: NotificationSettings) => {
     setNotifSettings(next);
     storage.saveNotifications(next);
-    const ok = await syncDailyReminder(next);
+    const ok = await syncReminders(next);
     if (!ok) {
       setPermissionDenied(true);
-      setNotifSettings({ ...next, enabled: false });
-      storage.saveNotifications({ ...next, enabled: false });
+      const disabled: NotificationSettings =
+        next.mode === 'per_meal'
+          ? {
+              ...next,
+              meal_reminders: {
+                breakfast: { ...next.meal_reminders.breakfast, enabled: false },
+                lunch: { ...next.meal_reminders.lunch, enabled: false },
+                dinner: { ...next.meal_reminders.dinner, enabled: false },
+              },
+            }
+          : { ...next, enabled: false };
+      setNotifSettings(disabled);
+      storage.saveNotifications(disabled);
       haptics.warning();
     } else {
       setPermissionDenied(false);
@@ -79,10 +98,18 @@ export default function ProfileView({ profile, onUpdateProfile, onResetData }: P
   return (
     <ScrollView contentContainerStyle={styles.scroll}>
       <View style={styles.card}>
-        <Text style={styles.name}>{profile.name}</Text>
-        <Text style={styles.sub}>
-          {profile.age}y · {profile.gender} · {heightDisplay} · {weightDisplay} → {goalWeightDisplay}
-        </Text>
+        <View style={styles.rowBetween}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.name}>{profile.name}</Text>
+            <Text style={styles.sub}>
+              {profile.age}y · {profile.gender} · {heightDisplay} · {weightDisplay} → {goalWeightDisplay}
+            </Text>
+          </View>
+          <Pressable style={styles.editBtn} onPress={() => setEditProfileOpen(true)}>
+            <Ionicons name="pencil" size={13} color={colors.emerald} />
+            <Text style={styles.editBtnText}>Edit</Text>
+          </Pressable>
+        </View>
         <View style={styles.statRow}>
           <Stat label="Calories" value={`${profile.calorie_target}`} />
           <Stat label="Protein" value={`${profile.protein_target_g}g`} />
@@ -101,9 +128,11 @@ export default function ProfileView({ profile, onUpdateProfile, onResetData }: P
         <Text style={styles.sectionDesc}>Controls how weight and height are displayed throughout the app.</Text>
         <Text style={styles.miniLabel}>Weight</Text>
         <View style={styles.chipRow}>
-          {(['kg', 'lb'] as WeightUnit[]).map((u) => (
+          {(['kg', 'lb', 'st_lb'] as WeightUnit[]).map((u) => (
             <Pressable key={u} style={[styles.chip, profile.units.weight === u && styles.chipActive]} onPress={() => handleWeightUnitChange(u)}>
-              <Text style={[styles.chipText, profile.units.weight === u && styles.chipTextActive]}>{u === 'kg' ? 'Kilograms' : 'Pounds'}</Text>
+              <Text style={[styles.chipText, profile.units.weight === u && styles.chipTextActive]}>
+                {u === 'kg' ? 'Kilograms' : u === 'lb' ? 'Pounds' : 'Stone + lb'}
+              </Text>
             </Pressable>
           ))}
         </View>
@@ -183,8 +212,21 @@ export default function ProfileView({ profile, onUpdateProfile, onResetData }: P
             <Text style={styles.sectionDesc}>A local notification to nudge you to log, fully on-device — no account or server involved.</Text>
           </View>
           <Switch
-            value={notifSettings.enabled}
-            onValueChange={(val) => updateNotifSettings({ ...notifSettings, enabled: val })}
+            value={notifSettings.mode === 'single' ? notifSettings.enabled : Object.values(notifSettings.meal_reminders).some((m) => m.enabled)}
+            onValueChange={(val) => {
+              if (notifSettings.mode === 'single') {
+                updateNotifSettings({ ...notifSettings, enabled: val });
+              } else {
+                updateNotifSettings({
+                  ...notifSettings,
+                  meal_reminders: {
+                    breakfast: { ...notifSettings.meal_reminders.breakfast, enabled: val },
+                    lunch: { ...notifSettings.meal_reminders.lunch, enabled: val },
+                    dinner: { ...notifSettings.meal_reminders.dinner, enabled: val },
+                  },
+                });
+              }
+            }}
             trackColor={{ false: colors.cardAlt, true: colors.emerald }}
             thumbColor="#fff"
           />
@@ -196,7 +238,23 @@ export default function ProfileView({ profile, onUpdateProfile, onResetData }: P
           </Text>
         )}
 
-        {notifSettings.enabled && (
+        <Text style={[styles.miniLabel, { marginTop: 14 }]}>Reminder mode</Text>
+        <View style={styles.chipRow}>
+          <Pressable
+            style={[styles.chip, notifSettings.mode === 'single' && styles.chipActive]}
+            onPress={() => updateNotifSettings({ ...notifSettings, mode: 'single' })}
+          >
+            <Text style={[styles.chipText, notifSettings.mode === 'single' && styles.chipTextActive]}>One reminder a day</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.chip, notifSettings.mode === 'per_meal' && styles.chipActive]}
+            onPress={() => updateNotifSettings({ ...notifSettings, mode: 'per_meal' })}
+          >
+            <Text style={[styles.chipText, notifSettings.mode === 'per_meal' && styles.chipTextActive]}>Separate per meal</Text>
+          </Pressable>
+        </View>
+
+        {notifSettings.mode === 'single' && notifSettings.enabled && (
           <View style={{ marginTop: 14 }}>
             <Text style={styles.miniLabel}>Reminder time</Text>
             <View style={styles.chipRow}>
@@ -225,6 +283,47 @@ export default function ProfileView({ profile, onUpdateProfile, onResetData }: P
             </View>
           </View>
         )}
+
+        {notifSettings.mode === 'per_meal' && (
+          <View style={{ marginTop: 14, gap: 14 }}>
+            {(['breakfast', 'lunch', 'dinner'] as const).map((meal) => (
+              <View key={meal}>
+                <View style={styles.rowBetween}>
+                  <Text style={styles.miniLabel}>{meal.charAt(0).toUpperCase() + meal.slice(1)}</Text>
+                  <Switch
+                    value={notifSettings.meal_reminders[meal].enabled}
+                    onValueChange={(val) =>
+                      updateNotifSettings({
+                        ...notifSettings,
+                        meal_reminders: { ...notifSettings.meal_reminders, [meal]: { ...notifSettings.meal_reminders[meal], enabled: val } },
+                      })
+                    }
+                    trackColor={{ false: colors.cardAlt, true: colors.emerald }}
+                    thumbColor="#fff"
+                  />
+                </View>
+                {notifSettings.meal_reminders[meal].enabled && (
+                  <View style={[styles.chipRow, { marginTop: 6 }]}>
+                    {MEAL_REMINDER_TIMES[meal].map((t) => (
+                      <Pressable
+                        key={t}
+                        style={[styles.chip, notifSettings.meal_reminders[meal].time === t && styles.chipActive]}
+                        onPress={() =>
+                          updateNotifSettings({
+                            ...notifSettings,
+                            meal_reminders: { ...notifSettings.meal_reminders, [meal]: { ...notifSettings.meal_reminders[meal], time: t } },
+                          })
+                        }
+                      >
+                        <Text style={[styles.chipText, notifSettings.meal_reminders[meal].time === t && styles.chipTextActive]}>{t}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                )}
+              </View>
+            ))}
+          </View>
+        )}
       </View>
 
       <View style={styles.card}>
@@ -243,6 +342,17 @@ export default function ProfileView({ profile, onUpdateProfile, onResetData }: P
           <Text style={styles.dangerBtnText}>Reset All Data</Text>
         </Pressable>
       </View>
+
+      <EditProfileModal
+        isOpen={editProfileOpen}
+        onClose={() => setEditProfileOpen(false)}
+        profile={profile}
+        onSave={(updated) => {
+          storage.saveProfile(updated);
+          onUpdateProfile(updated);
+          toast.show('Profile updated', 'success');
+        }}
+      />
     </ScrollView>
   );
 }
@@ -302,4 +412,6 @@ const makeStyles = (colors: any) => StyleSheet.create({
   linkBtnText: { color: colors.sky, fontSize: 11.5, fontWeight: '600' },
   dangerBtn: { paddingVertical: 12, alignItems: 'center', borderRadius: radius.md, borderWidth: 1, borderColor: colors.rose },
   dangerBtnText: { color: colors.rose, fontWeight: '800', fontSize: 13 },
+  editBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: colors.emeraldBg, borderRadius: radius.full, paddingVertical: 6, paddingHorizontal: 12 },
+  editBtnText: { color: colors.emerald, fontSize: 11.5, fontWeight: '800' },
 });

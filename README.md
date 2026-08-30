@@ -9,6 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![Made with Expo](https://img.shields.io/badge/Made%20with-Expo-000020?logo=expo)](https://expo.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+[![Version](https://img.shields.io/badge/version-1.4.2-blue.svg)](./RELEASE_NOTES.md)
 
 </div>
 
@@ -45,9 +46,11 @@ Most calorie trackers either want a monthly fee, sell your data, or bury the act
 **Daily tracking**
 - Log meals by describing them in plain English ("a bowl of chicken biryani") and get an instant AI or offline nutrition estimate
 - Photo-based food logging — snap or upload a photo and let a vision-capable model estimate the plate, or read a nutrition label directly
-- Manual entry, saved foods, and saved combo meals (build a meal once, log it in one tap forever after)
+- Barcode scanning for packaged foods — scan an EAN-13/UPC-A barcode and pull real manufacturer nutrition data straight from Open Food Facts, no AI provider or key required; edit the logged quantity in grams and calories/macros rescale automatically
+- Manual entry, saved foods, and saved combo meals (build a meal once, log it in one tap forever after) — saved foods and meals are browsable as Recents, Frequent (with a choice of all-time / 30-day / 90-day window), or Favorites, with search
 - Weight, activity (steps/duration/calories burned), and fasting logging
-- A "What If I Ate…" checker — build a hypothetical meal and see how it'd affect your day *before* committing to it
+- A "What If I Ate…" checker — build a hypothetical meal from typed descriptions or photos and see how it'd affect your day *before* committing to it
+- Reminders: one daily nudge, or independent breakfast/lunch/dinner reminders each with their own time — your choice
 
 **Progress & history**
 - SVG-charted weight, calorie, and step trends over 1 week to 3 months
@@ -56,11 +59,14 @@ Most calorie trackers either want a monthly fee, sell your data, or bury the act
 
 **AI Coach — bring your own key, from any of 13 providers**
 - A chat interface that knows your real numbers — today's intake, your averages, your trends — and answers accordingly
+- Clear the conversation any time with **New Chat**, and switch which model you're talking to mid-chat by tapping the provider badge in the header — no trip to Settings needed
+- Suggested starter prompts on an empty chat so you're never staring at a blank box
 - Choose from Google Gemini, OpenAI, Anthropic Claude, Groq, xAI Grok, OpenRouter, Mistral, DeepSeek, Together AI, Fireworks AI, DeepInfra, Perplexity, or any OpenAI-compatible custom endpoint (self-hosted, Ollama, LM Studio, etc.) — or run fully offline with the built-in offline engine, which never needs a key or a connection
+- Optional **fallback provider**: configure a second provider that's tried automatically if your primary one fails, before ever dropping to offline
 - Requests go straight from your device to the provider you pick; Nutrideel has no server in between and never sees your key
 - API keys are encrypted at rest with `expo-secure-store` (backed by the Android Keystore / iOS Keychain), never stored in plain text
 - Photo logging automatically falls back to a text-only estimate from your typed note on models without vision support, and to the offline engine if there's nothing usable to send
-- Every AI feature degrades gracefully to offline mode on any error — a bad key, a rate limit, no signal — nothing ever hard-fails
+- Every AI feature degrades gracefully to offline mode on a genuine failure (bad key, rate limit, no signal) — and when it does, it tells you *why* rather than just showing a generic "offline" message
 
 **The offline engine**
 - ~85 recognized foods spanning South Asian mains, rice and grains, pasta, fast food, proteins, dairy and breakfast items, produce, and drinks — each with real per-100g macros
@@ -71,8 +77,9 @@ Most calorie trackers either want a monthly fee, sell your data, or bury the act
 - Needs no API key, no account, and no network connection — this is what runs when you pick "Offline Engine" in AI Access, or automatically when an AI call fails
 
 **The rest**
-- Five-step onboarding that calculates your calorie/macro targets from your actual stats (Mifflin-St Jeor BMR, activity multiplier)
-- Six color themes, metric or imperial units, switchable anytime
+- Five-step onboarding that calculates your calorie/macro targets from your actual stats (Mifflin-St Jeor BMR, activity multiplier) — pick your preferred units (kg/lb/stone+lb, cm/ft+in) right from the first step
+- Edit your name, age, height, weight, goal weight, and activity level any time after setup from Profile → Edit — your targets recalculate automatically unless you've set a custom target
+- Six color themes, weight and height units switchable anytime from Profile (kilograms, pounds, or stone+pounds; centimeters or feet+inches)
 - Local daily reminder notifications
 - No vibration on every tap — haptics were tried and cut; the app is quiet by design
 - Plus Jakarta Sans throughout instead of the OS default system font
@@ -143,7 +150,7 @@ nutrideel/
 │   ├── screens/
 │   └── components/
 │       ├── common/                # Modal, charts, toasts, AI Access settings card
-│       ├── today/ history/ progress/ ai/ profile/ onboarding/
+│       ├── today/ history/ progress/ ai/ profile/ onboarding/   # profile/ includes EditProfileModal.tsx
 │       └── modals/                # Add/Edit food, weight, activity, fasting, etc.
 └── assets/
 ```

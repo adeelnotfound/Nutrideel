@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, FlatList, KeyboardAvoidingView, Platform, ActivityIndicator, Modal as RNModal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { radius } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -19,9 +19,15 @@ export default function AIChatView({ contextSnapshot, profile }: Props) {
   const [messages, setMessages] = useState<AIMessage[]>(() => storage.getAIChat());
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [modelPickerOpen, setModelPickerOpen] = useState(false);
   const providerId = storage.getAIProvider();
   const providerDef = getProviderDef(providerId);
   const hasKey = providerId === 'offline' || !!storage.getAIKeyFor(providerId);
+  const currentModelId = storage.getSelectedModel(providerId);
+  const currentModel = providerDef.models.find((m) => m.id === currentModelId);
+  const fallbackProviderId = storage.getAIFallbackProvider();
+  const fallbackConfigured =
+    fallbackProviderId && fallbackProviderId !== 'offline' && fallbackProviderId !== providerId && !!storage.getAIKeyFor(fallbackProviderId);
 
   const goal = profile.goal_type || profile.current_goal;
   const promptChips: string[] =
@@ -82,19 +88,75 @@ export default function AIChatView({ contextSnapshot, profile }: Props) {
     }
   };
 
+  const clearChat = () => {
+    Alert.alert('Clear chat?', 'This removes all messages in this conversation. This can\'t be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Clear',
+        style: 'destructive',
+        onPress: () => {
+          storage.clearAIChat();
+          setMessages([]);
+        },
+      },
+    ]);
+  };
+
+  const selectModel = (modelId: string) => {
+    storage.saveSelectedModel(providerId, modelId);
+    setModelPickerOpen(false);
+  };
+
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }} keyboardVerticalOffset={90}>
+      <RNModal visible={modelPickerOpen} transparent animationType="fade" onRequestClose={() => setModelPickerOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setModelPickerOpen(false)}>
+          <Pressable style={styles.modelSheet} onPress={() => {}}>
+            <Text style={styles.modelSheetTitle}>Model — {providerDef.label}</Text>
+            <FlatList
+              data={providerDef.models}
+              keyExtractor={(m) => m.id}
+              renderItem={({ item }) => (
+                <Pressable style={styles.modelRow} onPress={() => selectModel(item.id)}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.modelRowLabel}>{item.label}</Text>
+                    {!!item.description && <Text style={styles.modelRowDesc}>{item.description}</Text>}
+                  </View>
+                  {item.id === currentModelId && <Ionicons name="checkmark-circle" size={18} color={colors.emerald} />}
+                </Pressable>
+              )}
+            />
+          </Pressable>
+        </Pressable>
+      </RNModal>
+
       <View style={styles.headerBar}>
-        <View style={styles.providerBadge}>
+        <Pressable
+          style={styles.providerBadge}
+          onPress={() => providerId !== 'offline' && providerDef.models.length > 1 && setModelPickerOpen(true)}
+        >
           <Ionicons name="hardware-chip-outline" size={13} color={colors.emerald} />
-          <Text style={styles.providerBadgeText}>{providerId === 'offline' ? 'Offline Engine' : providerDef.label}</Text>
-        </View>
+          <Text style={styles.providerBadgeText}>
+            {providerId === 'offline' ? 'Offline Engine' : `${providerDef.shortLabel} · ${currentModel?.label || currentModelId}`}
+          </Text>
+          {providerId !== 'offline' && providerDef.models.length > 1 && <Ionicons name="chevron-down" size={12} color={colors.emerald} />}
+        </Pressable>
+        <Pressable style={styles.clearBtn} onPress={clearChat} hitSlop={8}>
+          <Ionicons name="refresh-outline" size={15} color={colors.textFaint} />
+          <Text style={styles.clearBtnText}>New Chat</Text>
+        </Pressable>
       </View>
 
       {!hasKey && (
         <View style={styles.keyHint}>
           <Ionicons name="information-circle-outline" size={14} color={colors.amber} />
           <Text style={styles.keyHintText}>No API key set — running on the offline engine. Add a free key in Profile for smarter answers.</Text>
+        </View>
+      )}
+      {hasKey && providerId !== 'offline' && fallbackConfigured && (
+        <View style={styles.fallbackHint}>
+          <Ionicons name="shield-checkmark-outline" size={13} color={colors.emerald} />
+          <Text style={styles.fallbackHintText}>{getProviderDef(fallbackProviderId).label} is set as a fallback if {providerDef.label} fails.</Text>
         </View>
       )}
 
@@ -149,7 +211,19 @@ export default function AIChatView({ contextSnapshot, profile }: Props) {
 }
 
 const makeStyles = (colors: any) => StyleSheet.create({
-  headerBar: { paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4 },
+  headerBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 14, paddingTop: 10, paddingBottom: 4 },
+  providerBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border, borderRadius: radius.full, paddingVertical: 5, paddingHorizontal: 10 },
+  providerBadgeText: { color: colors.text, fontSize: 10.5, fontWeight: '700' },
+  clearBtn: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingVertical: 4, paddingHorizontal: 8 },
+  clearBtnText: { color: colors.textFaint, fontSize: 11, fontWeight: '700' },
+  fallbackHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: 14, marginTop: 6, padding: 10, backgroundColor: colors.emeraldBg, borderRadius: radius.sm },
+  fallbackHintText: { color: colors.emerald, fontSize: 10.5, flex: 1, lineHeight: 14 },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  modelSheet: { backgroundColor: colors.card, borderTopLeftRadius: radius.lg, borderTopRightRadius: radius.lg, padding: 16, maxHeight: '70%' },
+  modelSheetTitle: { color: colors.text, fontWeight: '800', fontSize: 14, marginBottom: 10 },
+  modelRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.border, gap: 10 },
+  modelRowLabel: { color: colors.text, fontSize: 13, fontWeight: '700' },
+  modelRowDesc: { color: colors.textFaint, fontSize: 11, marginTop: 2 },
   keyHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: 14, marginTop: 6, padding: 10, backgroundColor: colors.amberBg, borderRadius: radius.sm },
   keyHintText: { color: colors.amber, fontSize: 10.5, flex: 1, lineHeight: 14 },
   list: { padding: 14, paddingBottom: 20, gap: 10 },

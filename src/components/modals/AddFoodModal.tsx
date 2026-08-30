@@ -8,10 +8,12 @@ import { radius } from '../../theme';
 import { useTheme } from '../../contexts/ThemeContext';
 import { FoodEntry, MealType, SavedMeal } from '../../types';
 import { storage } from '../../services/storage';
-import { evaluateFoodServing, evaluateFoodPhoto, EvaluatedFoodResponse } from '../../services/aiService';
+import { evaluateFoodServing, evaluateFoodPhoto, EvaluatedFoodResponse, describeFallbackReason } from '../../services/aiService';
 import { getSystemLocalISOString } from '../../utils/date';
 import { useToast } from '../common/ToastProvider';
 import { haptics } from '../../utils/haptics';
+import BarcodeScannerModal from './BarcodeScannerModal';
+import { BarcodeProductResult, rescaleBarcodeResponse } from '../../services/openFoodFacts';
 
 interface Props {
   isOpen: boolean;
@@ -22,7 +24,7 @@ interface Props {
   onMealAdded: (items: Omit<FoodEntry, 'id'>[]) => void;
 }
 
-type Mode = 'quick' | 'photo' | 'manual' | 'saved' | 'combo';
+type Mode = 'quick' | 'photo' | 'barcode' | 'manual' | 'saved' | 'combo';
 
 interface ComboItem {
   key: string;
@@ -59,15 +61,37 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
   const [photoLoading, setPhotoLoading] = useState(false);
   const [photoResult, setPhotoResult] = useState<EvaluatedFoodResponse | null>(null);
 
+  const [barcodeScannerOpen, setBarcodeScannerOpen] = useState(false);
+  const [barcodeResult, setBarcodeResult] = useState<EvaluatedFoodResponse | null>(null);
+  const [barcodePer100g, setBarcodePer100g] = useState<BarcodeProductResult['per100g'] | null>(null);
+  const [barcodeGramsInput, setBarcodeGramsInput] = useState('100');
+  const [barcodeNotFoundCode, setBarcodeNotFoundCode] = useState<string | null>(null);
+
   const [comboDescription, setComboDescription] = useState('');
   const [comboLoading, setComboLoading] = useState(false);
   const [comboItems, setComboItems] = useState<ComboItem[]>([]);
   const [savedMealsRefresh, setSavedMealsRefresh] = useState(0);
   const [namePromptOpen, setNamePromptOpen] = useState(false);
-  const savedFoods = storage
-    .getSavedFoods()
-    .sort((a, b) => (b.favorite === a.favorite ? b.frequency - a.frequency : b.favorite ? 1 : -1))
-    .slice(0, 30);
+  const [savedView, setSavedView] = useState<'recent' | 'frequent' | 'favorites'>('recent');
+  const [savedSearch, setSavedSearch] = useState('');
+  const [savedItemsSettings, setSavedItemsSettings] = useState(() => storage.getSavedItemsSettings());
+
+  const allSavedFoods = storage.getSavedFoods();
+  const savedFoods = allSavedFoods
+    .filter((f) => (savedView === 'favorites' ? f.favorite : true))
+    .filter((f) => !savedSearch.trim() || f.name.toLowerCase().includes(savedSearch.trim().toLowerCase()))
+    .sort((a, b) => {
+      if (savedView === 'recent') return new Date(b.last_used_at).getTime() - new Date(a.last_used_at).getTime();
+      if (savedView === 'frequent') {
+        return (
+          storage.windowedFrequency(b.frequency, b.usage_history, savedItemsSettings.frequentWindow) -
+          storage.windowedFrequency(a.frequency, a.usage_history, savedItemsSettings.frequentWindow)
+        );
+      }
+      // favorites view: most recently used first
+      return new Date(b.last_used_at).getTime() - new Date(a.last_used_at).getTime();
+    })
+    .slice(0, 40);
   const savedMeals = storage.getSavedMeals().sort((a, b) => b.frequency - a.frequency);
 
   const reset = () => {
@@ -84,6 +108,10 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
     setPhotoBase64(null);
     setPhotoNote('');
     setPhotoResult(null);
+    setBarcodeResult(null);
+    setBarcodePer100g(null);
+    setBarcodeGramsInput('100');
+    setBarcodeNotFoundCode(null);
   };
 
   const close = () => {
@@ -151,6 +179,52 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
       carbs: photoResult.carbs,
       fat: photoResult.fat,
       fiber: photoResult.fiber,
+      source: 'logged',
+      created_at: getSystemLocalISOString(),
+    };
+    onFoodAdded(entry);
+    close();
+  };
+
+  const handleBarcodeFound = (lookup: BarcodeProductResult) => {
+    if (!lookup.response) return;
+    setBarcodeResult(lookup.response);
+    setBarcodePer100g(lookup.per100g || null);
+    setBarcodeGramsInput('100');
+    setBarcodeNotFoundCode(null);
+    setMode('barcode');
+  };
+
+  const handleBarcodeNotFound = (code: string) => {
+    setBarcodeResult(null);
+    setBarcodePer100g(null);
+    setBarcodeNotFoundCode(code);
+    setMode('barcode');
+  };
+
+  // Rescales the barcode result's calories/macros proportionally as the user edits grams,
+  // using the product's per-100g values as the source of truth (simple linear scaling).
+  const handleBarcodeGramsChange = (text: string) => {
+    setBarcodeGramsInput(text);
+    const grams = Number(text);
+    if (!barcodeResult || !barcodePer100g || isNaN(grams) || grams < 0) return;
+    const rescaled = rescaleBarcodeResponse(barcodePer100g, grams);
+    setBarcodeResult({ ...barcodeResult, ...rescaled });
+  };
+
+  const commitBarcodeResult = () => {
+    if (!barcodeResult) return;
+    const entry: FoodEntry = {
+      id: `f_${Date.now()}`,
+      food_name: barcodeResult.food_name,
+      quantity: barcodeResult.quantity || 100,
+      serving_size: barcodeResult.estimated_grams || barcodeResult.quantity || 100,
+      unit: 'g',
+      calories: barcodeResult.calories,
+      protein: barcodeResult.protein,
+      carbs: barcodeResult.carbs,
+      fat: barcodeResult.fat,
+      fiber: barcodeResult.fiber,
       source: 'logged',
       created_at: getSystemLocalISOString(),
     };
@@ -304,6 +378,7 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
         created_at: getSystemLocalISOString(),
       }))
     );
+    storage.recordSavedMealUsage(meal.id);
     close();
   };
 
@@ -326,11 +401,17 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
           setNamePromptOpen(false);
         }}
       />
+      <BarcodeScannerModal
+        isOpen={barcodeScannerOpen}
+        onClose={() => setBarcodeScannerOpen(false)}
+        onProductFound={handleBarcodeFound}
+        onNotFound={handleBarcodeNotFound}
+      />
       <View style={styles.tabRow}>
-        {(['quick', 'photo', 'manual', 'saved', 'combo'] as Mode[]).map((m) => (
+        {(['quick', 'photo', 'barcode', 'manual', 'saved', 'combo'] as Mode[]).map((m) => (
           <Pressable key={m} style={[styles.tabBtn, mode === m && styles.tabBtnActive]} onPress={() => setMode(m)}>
             <Text style={[styles.tabText, mode === m && styles.tabTextActive]}>
-              {m === 'quick' ? 'Describe' : m === 'photo' ? 'Photo' : m === 'manual' ? 'Manual' : m === 'saved' ? 'Saved' : 'Meals'}
+              {m === 'quick' ? 'Describe' : m === 'photo' ? 'Photo' : m === 'barcode' ? 'Barcode' : m === 'manual' ? 'Manual' : m === 'saved' ? 'Saved' : 'Meals'}
             </Text>
           </Pressable>
         ))}
@@ -362,7 +443,7 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
                 <MacroStat label="Fat" value={`${Math.round(result.fat)}g`} />
               </View>
               {!!result.nutritional_notes && <Text style={styles.notes}>{result.nutritional_notes}</Text>}
-              {result.fallback && <Text style={styles.fallbackNote}>Offline estimate — connect an AI provider in Profile for AI-powered estimates.</Text>}
+              {result.fallback && <Text style={styles.fallbackNote}>{describeFallbackReason(result.fallbackReason, result.errorDetails)}</Text>}
               <Pressable style={styles.primaryBtn} onPress={commitResult}>
                 <Text style={styles.primaryBtnText}>Log This Food</Text>
               </Pressable>
@@ -429,8 +510,55 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
                 <MacroStat label="Fat" value={`${Math.round(photoResult.fat)}g`} />
               </View>
               {!!photoResult.nutritional_notes && <Text style={styles.notes}>{photoResult.nutritional_notes}</Text>}
-              {photoResult.fallback && <Text style={styles.fallbackNote}>Offline estimate — connect an AI provider in Profile for AI-powered photo analysis.</Text>}
+              {photoResult.fallback && <Text style={styles.fallbackNote}>{describeFallbackReason(photoResult.fallbackReason, photoResult.errorDetails)}</Text>}
               <Pressable style={styles.primaryBtn} onPress={commitPhotoResult}>
+                <Text style={styles.primaryBtnText}>Log This Food</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+      )}
+
+      {mode === 'barcode' && (
+        <View>
+          <Text style={styles.hint}>Scan a packaged food's barcode to pull real nutrition data from Open Food Facts — works with no AI provider configured.</Text>
+
+          <Pressable style={styles.photoActionBtn} onPress={() => setBarcodeScannerOpen(true)}>
+            <Ionicons name="barcode-outline" size={18} color={colors.emerald} />
+            <Text style={styles.photoActionText}>{barcodeResult || barcodeNotFoundCode ? 'Scan Another' : 'Scan Barcode'}</Text>
+          </Pressable>
+
+          {barcodeNotFoundCode && !barcodeResult && (
+            <View style={styles.resultCard}>
+              <Text style={styles.resultTitle}>Not found</Text>
+              <Text style={styles.resultSub}>Barcode {barcodeNotFoundCode} isn't in the Open Food Facts database.</Text>
+              <Text style={styles.notes}>Try Manual entry, or describe the food under Describe / Photo to get an estimate instead.</Text>
+            </View>
+          )}
+
+          {barcodeResult && (
+            <View style={styles.resultCard}>
+              <Text style={styles.resultTitle}>{barcodeResult.food_name}</Text>
+              <Text style={styles.resultSub}>{barcodeResult.serving_description}</Text>
+
+              <View style={[styles.row2, { marginTop: 12, alignItems: 'flex-end' }]}>
+                <LabeledInput
+                  label="Quantity (g)"
+                  value={barcodeGramsInput}
+                  onChangeText={handleBarcodeGramsChange}
+                  keyboardType="numeric"
+                  placeholder="100"
+                />
+              </View>
+
+              <View style={styles.macroGrid}>
+                <MacroStat label="Cal" value={Math.round(barcodeResult.calories)} />
+                <MacroStat label="Protein" value={`${Math.round(barcodeResult.protein)}g`} />
+                <MacroStat label="Carbs" value={`${Math.round(barcodeResult.carbs)}g`} />
+                <MacroStat label="Fat" value={`${Math.round(barcodeResult.fat)}g`} />
+              </View>
+              {!!barcodeResult.nutritional_notes && <Text style={styles.notes}>{barcodeResult.nutritional_notes}</Text>}
+              <Pressable style={styles.primaryBtn} onPress={commitBarcodeResult}>
                 <Text style={styles.primaryBtnText}>Log This Food</Text>
               </Pressable>
             </View>
@@ -457,8 +585,55 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
 
       {mode === 'saved' && (
         <View key={savedMealsRefresh}>
+          <View style={styles.subTabRow}>
+            {(['recent', 'frequent', 'favorites'] as const).map((v) => (
+              <Pressable key={v} style={[styles.subTabBtn, savedView === v && styles.subTabBtnActive]} onPress={() => setSavedView(v)}>
+                <Text style={[styles.subTabText, savedView === v && styles.subTabTextActive]}>
+                  {v === 'recent' ? 'Recents' : v === 'frequent' ? 'Frequent' : 'Favorites'}
+                </Text>
+              </Pressable>
+            ))}
+          </View>
+
+          {savedView === 'frequent' && (
+            <View style={styles.windowRow}>
+              <Text style={styles.windowLabel}>Based on:</Text>
+              {([
+                ['all', 'All time'],
+                ['30d', 'Last 30 days'],
+                ['90d', 'Last 90 days'],
+              ] as const).map(([key, label]) => (
+                <Pressable
+                  key={key}
+                  style={[styles.windowChip, savedItemsSettings.frequentWindow === key && styles.windowChipActive]}
+                  onPress={() => {
+                    const next = { ...savedItemsSettings, frequentWindow: key };
+                    setSavedItemsSettings(next);
+                    storage.saveSavedItemsSettings(next);
+                  }}
+                >
+                  <Text style={[styles.windowChipText, savedItemsSettings.frequentWindow === key && styles.windowChipTextActive]}>{label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          )}
+
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search saved foods..."
+            placeholderTextColor={colors.textFaint}
+            value={savedSearch}
+            onChangeText={setSavedSearch}
+          />
+
           {savedFoods.length === 0 ? (
-            <Text style={styles.hint}>No saved foods yet. Foods you log will appear here for quick re-adding.</Text>
+            <Text style={styles.hint}>
+              {savedSearch.trim()
+                ? 'No saved foods match your search.'
+                : savedView === 'favorites'
+                ? 'No favorites yet — tap the star on a saved food to favorite it.'
+                : 'No saved foods yet. Foods you log will appear here for quick re-adding.'}
+            </Text>
           ) : (
             <FlatList
               data={savedFoods}
@@ -482,7 +657,9 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
                       {item.calories} kcal · P{item.protein} C{item.carbs} F{item.fat}
                     </Text>
                   </View>
-                  <Text style={styles.savedFreq}>{item.frequency}x</Text>
+                  <Text style={styles.savedFreq}>
+                    {savedView === 'frequent' ? storage.windowedFrequency(item.frequency, item.usage_history, savedItemsSettings.frequentWindow) : item.frequency}x
+                  </Text>
                 </Pressable>
               )}
             />
@@ -550,6 +727,16 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
                 const total = meal.items.reduce((acc, i) => acc + (i.calories || 0), 0);
                 return (
                   <View key={meal.id} style={styles.savedMealRow}>
+                    <Pressable
+                      hitSlop={8}
+                      onPress={() => {
+                        storage.toggleSavedMealFavorite(meal.id);
+                        setSavedMealsRefresh((n) => n + 1);
+                        haptics.light();
+                      }}
+                    >
+                      <Ionicons name={meal.favorite ? 'star' : 'star-outline'} size={16} color={meal.favorite ? colors.amber : colors.textFaint} style={{ marginRight: 10 }} />
+                    </Pressable>
                     <Pressable style={{ flex: 1 }} onPress={() => commitSavedMeal(meal)}>
                       <Text style={styles.savedName}>{meal.name}</Text>
                       <Text style={styles.savedMeta}>
@@ -622,6 +809,18 @@ const makeStyles = (colors: any) => StyleSheet.create({
   fieldLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 4 },
   fieldInput: { backgroundColor: colors.cardAlt, borderRadius: radius.sm, padding: 10, color: colors.text, borderWidth: 1, borderColor: colors.border },
   savedRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
+  subTabRow: { flexDirection: 'row', gap: 6, marginBottom: 10 },
+  subTabBtn: { flex: 1, paddingVertical: 7, borderRadius: radius.sm, backgroundColor: colors.cardAlt, alignItems: 'center' },
+  subTabBtnActive: { backgroundColor: colors.emeraldBg, borderWidth: 1, borderColor: colors.emerald },
+  subTabText: { color: colors.textMuted, fontWeight: '700', fontSize: 11 },
+  subTabTextActive: { color: colors.emerald },
+  windowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10, flexWrap: 'wrap' },
+  windowLabel: { color: colors.textFaint, fontSize: 10.5, fontWeight: '600' },
+  windowChip: { paddingVertical: 5, paddingHorizontal: 10, borderRadius: radius.sm, backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border },
+  windowChipActive: { backgroundColor: colors.emeraldBg, borderColor: colors.emerald },
+  windowChipText: { color: colors.textMuted, fontSize: 10.5, fontWeight: '700' },
+  windowChipTextActive: { color: colors.emerald },
+  searchInput: { backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: 10, color: colors.text, borderWidth: 1, borderColor: colors.border, marginBottom: 10, fontSize: 12.5 },
   savedName: { color: colors.text, fontWeight: '700', fontSize: 13 },
   savedMeta: { color: colors.textFaint, fontSize: 10.5, marginTop: 2 },
   savedFreq: { color: colors.textFaint, fontSize: 11, fontWeight: '700' },

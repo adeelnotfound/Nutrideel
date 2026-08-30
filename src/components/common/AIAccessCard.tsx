@@ -21,6 +21,8 @@ export default function AIAccessCard() {
   const [providerId, setProviderId] = useState(() => storage.getAIProvider());
   const [providerPickerOpen, setProviderPickerOpen] = useState(false);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [fallbackProviderId, setFallbackProviderId] = useState(() => storage.getAIFallbackProvider());
+  const [fallbackPickerOpen, setFallbackPickerOpen] = useState(false);
   const [keyInput, setKeyInput] = useState(() => storage.getAIKeyFor(storage.getAIProvider()));
   const [keyVisible, setKeyVisible] = useState(false);
   const [baseUrlInput, setBaseUrlInput] = useState(() => storage.getCustomBaseUrl());
@@ -32,6 +34,10 @@ export default function AIAccessCard() {
   const savedKey = isOffline ? '' : storage.getAIKeyFor(providerId);
   const keyDirty = !isOffline && keyInput !== savedKey;
   const canUseVision = def ? modelSupportsVision(providerId, selectedModel) : false;
+
+  const isFallbackOffline = fallbackProviderId === OFFLINE_PROVIDER_ID;
+  const fallbackDef = isFallbackOffline ? null : getProviderDef(fallbackProviderId);
+  const fallbackHasKey = isFallbackOffline || !!storage.getAIKeyFor(fallbackProviderId);
 
   const selectProvider = (id: string) => {
     setProviderId(id);
@@ -46,6 +52,14 @@ export default function AIAccessCard() {
     storage.saveSelectedModel(providerId, modelId);
     setModelPickerOpen(false);
     haptics.selection();
+  };
+
+  const selectFallbackProvider = (id: string) => {
+    setFallbackProviderId(id);
+    storage.saveAIFallbackProvider(id);
+    setFallbackPickerOpen(false);
+    haptics.selection();
+    toast.show(id === OFFLINE_PROVIDER_ID ? 'Fallback disabled' : `${getProviderDef(id).label} set as fallback`, 'info');
   };
 
   const saveKey = () => {
@@ -150,6 +164,27 @@ export default function AIAccessCard() {
             <Ionicons name="lock-closed-outline" size={12} color={colors.textFaint} />
             <Text style={styles.secureNoteText}>Keys are encrypted on-device with your OS keychain and never leave your phone except in requests directly to {def.label}.</Text>
           </View>
+
+          {/* Fallback provider */}
+          <Text style={[styles.label, { marginTop: 18 }]}>Fallback Provider (optional)</Text>
+          <Text style={[styles.triggerDesc, { marginBottom: 8 }]}>
+            If {def.label} fails (bad key, rate limit, outage), automatically retry once with this provider before falling back to offline.
+          </Text>
+          <Pressable style={styles.trigger} onPress={() => setFallbackPickerOpen(true)}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.triggerLabel}>{isFallbackOffline ? 'None' : fallbackDef?.label}</Text>
+              <Text style={styles.triggerDesc} numberOfLines={1}>
+                {isFallbackOffline ? 'No fallback — go straight to offline on failure' : fallbackHasKey ? fallbackDef?.description : 'No key saved for this provider yet'}
+              </Text>
+            </View>
+            <Ionicons name="chevron-down" size={16} color={colors.textMuted} />
+          </Pressable>
+          {!isFallbackOffline && !fallbackHasKey && (
+            <View style={styles.noticeRow}>
+              <Ionicons name="alert-circle-outline" size={13} color={colors.amber} />
+              <Text style={styles.noticeText}>Switch to {fallbackDef?.label} above and save a key for it, or this fallback won't be used.</Text>
+            </View>
+          )}
         </>
       )}
 
@@ -219,6 +254,38 @@ export default function AIAccessCard() {
           </Pressable>
         </RNModal>
       )}
+
+      {/* Fallback provider picker modal */}
+      <RNModal visible={fallbackPickerOpen} animationType="fade" transparent onRequestClose={() => setFallbackPickerOpen(false)}>
+        <Pressable style={styles.backdrop} onPress={() => setFallbackPickerOpen(false)}>
+          <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>
+            <Text style={styles.sheetTitle}>Choose Fallback Provider</Text>
+            <ScrollView style={{ maxHeight: 420 }} showsVerticalScrollIndicator={false}>
+              <View style={{ gap: 8 }}>
+                <ProviderOption
+                  colors={colors}
+                  active={isFallbackOffline}
+                  label="None"
+                  desc="Go straight to offline estimates if the primary provider fails"
+                  icon="close-circle-outline"
+                  onPress={() => selectFallbackProvider(OFFLINE_PROVIDER_ID)}
+                />
+                {AI_PROVIDERS.filter((p) => p.id !== providerId).map((p) => (
+                  <ProviderOption
+                    key={p.id}
+                    colors={colors}
+                    active={p.id === fallbackProviderId}
+                    label={p.label}
+                    desc={storage.getAIKeyFor(p.id) ? p.description : `${p.description} — no key saved yet`}
+                    icon={p.supportsVision ? 'sparkles-outline' : 'chatbubble-ellipses-outline'}
+                    onPress={() => selectFallbackProvider(p.id)}
+                  />
+                ))}
+              </View>
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </RNModal>
     </View>
   );
 }

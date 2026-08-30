@@ -46,7 +46,7 @@ export const AI_PROVIDERS: ProviderDef[] = [
     description: 'Free tier available. Strong vision support for photo logging.',
     models: [
       { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash', description: 'Newest and most capable Flash model — best default' },
-      { id: 'gemini-3.1-pro', label: 'Gemini 3.1 Pro', description: 'Flagship model, highest accuracy, slower and pricier' },
+      { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', description: 'Flagship model, highest accuracy, slower and pricier' },
       { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', description: 'Previous-gen Flash, still fast and capable' },
       { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash', description: 'Balanced speed and quality' },
       { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite', description: 'Low-latency, cost-effective' },

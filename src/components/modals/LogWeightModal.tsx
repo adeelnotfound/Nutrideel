@@ -22,20 +22,33 @@ export default function LogWeightModal({ isOpen, onClose, currentDate, userWeigh
   const { colors } = useTheme();
   const styles = makeStyles(colors);
   const [value, setValue] = useState('');
+  const [stoneLbValue, setStoneLbValue] = useState('');
   const [notes, setNotes] = useState('');
+  const isStLb = userWeightUnit === 'st_lb';
 
   useEffect(() => {
     if (isOpen) {
       const kg = existingWeight?.weight_kg ?? lastWeightKg;
-      setValue(convertWeightFromKg(kg, userWeightUnit).value.toFixed(1));
+      const converted = convertWeightFromKg(kg, userWeightUnit);
+      if (isStLb) {
+        setValue(String(Math.floor(converted.value / 14)));
+        setStoneLbValue((converted.value % 14).toFixed(1));
+      } else {
+        setValue(converted.value.toFixed(1));
+        setStoneLbValue('');
+      }
       setNotes(existingWeight?.notes || '');
     }
   }, [isOpen, existingWeight, lastWeightKg, userWeightUnit]);
 
   const handleSave = () => {
     const numVal = Number(value);
-    if (!numVal || numVal <= 0) return;
-    const kg = convertWeightToKg(numVal, userWeightUnit);
+    if (!numVal && !isStLb) return;
+    if (isStLb && !numVal && !Number(stoneLbValue)) return;
+    const kg = isStLb
+      ? convertWeightToKg(numVal, 'st_lb', Number(stoneLbValue) || 0)
+      : convertWeightToKg(numVal, userWeightUnit);
+    if (kg <= 0) return;
     onSaveWeight(
       {
         date: currentDate,
@@ -52,17 +65,44 @@ export default function LogWeightModal({ isOpen, onClose, currentDate, userWeigh
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Log Weight">
       <View style={{ gap: 12 }}>
-        <View>
-          <Text style={styles.label}>Weight ({userWeightUnit})</Text>
-          <TextInput
-            style={styles.bigInput}
-            value={value}
-            onChangeText={setValue}
-            keyboardType="decimal-pad"
-            placeholder="0.0"
-            placeholderTextColor={colors.textFaint}
-          />
-        </View>
+        {isStLb ? (
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Stone</Text>
+              <TextInput
+                style={styles.bigInput}
+                value={value}
+                onChangeText={setValue}
+                keyboardType="numeric"
+                placeholder="11"
+                placeholderTextColor={colors.textFaint}
+              />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.label}>Pounds</Text>
+              <TextInput
+                style={styles.bigInput}
+                value={stoneLbValue}
+                onChangeText={setStoneLbValue}
+                keyboardType="decimal-pad"
+                placeholder="3.2"
+                placeholderTextColor={colors.textFaint}
+              />
+            </View>
+          </View>
+        ) : (
+          <View>
+            <Text style={styles.label}>Weight ({userWeightUnit})</Text>
+            <TextInput
+              style={styles.bigInput}
+              value={value}
+              onChangeText={setValue}
+              keyboardType="decimal-pad"
+              placeholder="0.0"
+              placeholderTextColor={colors.textFaint}
+            />
+          </View>
+        )}
         <View>
           <Text style={styles.label}>Notes (optional)</Text>
           <TextInput

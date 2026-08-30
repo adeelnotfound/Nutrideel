@@ -12,9 +12,11 @@ import {
   SavedMeal,
   AIMessage,
   NotificationSettings,
+  SavedItemsSettings,
+  FrequentWindow,
 } from '../types';
 import { ThemeId, defaultThemeId } from '../theme';
-import { AI_PROVIDERS, OFFLINE_PROVIDER_ID, getDefaultModelFor } from './aiProviders';
+import { AI_PROVIDERS, OFFLINE_PROVIDER_ID, getDefaultModelFor, getProviderDef } from './aiProviders';
 
 const STORAGE_KEYS = {
   PROFILE: 'calorie_app_profile',
@@ -25,10 +27,12 @@ const STORAGE_KEYS = {
   FASTING: 'calorie_app_fasting',
   SAVED_FOODS: 'calorie_app_saved_foods',
   SAVED_MEALS: 'calorie_app_saved_meals',
+  SAVED_ITEMS_SETTINGS: 'calorie_app_saved_items_settings',
   AI_CHAT: 'calorie_app_ai_chat',
   NOTIFICATIONS: 'calorie_app_notifications',
   THEME: 'calorie_app_theme',
   AI_PROVIDER: 'calorie_app_ai_provider',
+  AI_FALLBACK_PROVIDER: 'calorie_app_ai_fallback_provider',
   AI_MODEL_BY_PROVIDER: 'calorie_app_ai_model_by_provider',
   AI_CUSTOM_BASE_URL: 'calorie_app_ai_custom_base_url',
   ADAPTIVE_GOALS_ENABLED: 'calorie_app_adaptive_goals_enabled',
@@ -128,6 +132,28 @@ function writeCache(key: string, value: any) {
 }
 
 const genId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+
+// Caps how many individual usage timestamps we keep per saved item — enough to compute
+// a 90-day windowed frequency for a food logged multiple times a day, without the array
+// growing unbounded for years-old entries.
+const MAX_USAGE_HISTORY = 200;
+
+function appendUsage(history: string[] | undefined, timestamp: string): string[] {
+  const next = [...(history || []), timestamp];
+  return next.length > MAX_USAGE_HISTORY ? next.slice(next.length - MAX_USAGE_HISTORY) : next;
+}
+
+// Computes "frequency" for sorting/display purposes given a window preference.
+// 'all' just uses the all-time counter; '30d'/'90d' count usage_history entries within
+// that many days of now (falling back to the all-time counter for older items that predate
+// usage_history being tracked, i.e. have no history at all yet).
+function windowedFrequency(allTimeFrequency: number, usageHistory: string[] | undefined, window: FrequentWindow): number {
+  if (window === 'all') return allTimeFrequency;
+  if (!usageHistory || usageHistory.length === 0) return allTimeFrequency;
+  const days = window === '30d' ? 30 : 90;
+  const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+  return usageHistory.filter((ts) => new Date(ts).getTime() >= cutoff).length;
+}
 
 // ----------------- Core Storage Methods ----------------- //
 
@@ -395,10 +421,12 @@ export const storage = {
 
   recordFoodUsage(entry: FoodEntry): void {
     const foods = this.getSavedFoods();
+    const now = new Date().toISOString();
     const found = foods.find((f) => f.name.toLowerCase() === entry.food_name.toLowerCase());
     if (found) {
       found.frequency += 1;
-      found.last_used_at = new Date().toISOString();
+      found.last_used_at = now;
+      found.usage_history = appendUsage(found.usage_history, now);
       this.saveSavedFoods(foods);
     } else {
       const newFood: SavedFood = {
@@ -415,7 +443,8 @@ export const storage = {
         sodium: entry.sodium,
         favorite: false,
         frequency: 1,
-        last_used_at: new Date().toISOString(),
+        last_used_at: now,
+        usage_history: [now],
         sort_order: foods.length + 1,
       };
       foods.push(newFood);
@@ -449,6 +478,42 @@ export const storage = {
     this.saveSavedMeals(this.getSavedMeals().filter((m) => m.id !== mealId));
   },
 
+  toggleSavedMealFavorite(mealId: string): void {
+    const meals = this.getSavedMeals();
+    const idx = meals.findIndex((m) => m.id === mealId);
+    if (idx >= 0) {
+      meals[idx] = { ...meals[idx], favorite: !meals[idx].favorite };
+      this.saveSavedMeals(meals);
+    }
+  },
+
+  recordSavedMealUsage(mealId: string): void {
+    const meals = this.getSavedMeals();
+    const idx = meals.findIndex((m) => m.id === mealId);
+    if (idx >= 0) {
+      const now = new Date().toISOString();
+      meals[idx] = {
+        ...meals[idx],
+        frequency: meals[idx].frequency + 1,
+        last_used_at: now,
+        usage_history: appendUsage(meals[idx].usage_history, now),
+      };
+      this.saveSavedMeals(meals);
+    }
+  },
+
+  getSavedItemsSettings(): SavedItemsSettings {
+    return readCache<SavedItemsSettings>(STORAGE_KEYS.SAVED_ITEMS_SETTINGS, { frequentWindow: 'all' });
+  },
+
+  saveSavedItemsSettings(settings: SavedItemsSettings): void {
+    writeCache(STORAGE_KEYS.SAVED_ITEMS_SETTINGS, settings);
+  },
+
+  windowedFrequency(allTimeFrequency: number, usageHistory: string[] | undefined, window: FrequentWindow): number {
+    return windowedFrequency(allTimeFrequency, usageHistory, window);
+  },
+
   getAIChat(): AIMessage[] {
     const cached = readCache<AIMessage[] | null>(STORAGE_KEYS.AI_CHAT, null);
     if (cached) return cached;
@@ -472,12 +537,31 @@ export const storage = {
   },
 
   getNotifications(): NotificationSettings {
-    return readCache<NotificationSettings>(STORAGE_KEYS.NOTIFICATIONS, {
+    const defaults: NotificationSettings = {
       enabled: true,
       daily_reminder_time: '20:00',
       days_of_week: [0, 1, 2, 3, 4, 5, 6],
       reminder_type: 'incomplete_log',
-    });
+      mode: 'single',
+      meal_reminders: {
+        breakfast: { enabled: false, time: '08:00' },
+        lunch: { enabled: false, time: '13:00' },
+        dinner: { enabled: false, time: '19:00' },
+      },
+    };
+    const stored = readCache<NotificationSettings | null>(STORAGE_KEYS.NOTIFICATIONS, null);
+    if (!stored) return defaults;
+    // Defensive merge: settings saved before per-meal reminders existed won't have
+    // `mode`/`meal_reminders` at all, so fill those in rather than leaving them undefined.
+    return {
+      ...defaults,
+      ...stored,
+      meal_reminders: {
+        breakfast: { ...defaults.meal_reminders.breakfast, ...(stored.meal_reminders?.breakfast || {}) },
+        lunch: { ...defaults.meal_reminders.lunch, ...(stored.meal_reminders?.lunch || {}) },
+        dinner: { ...defaults.meal_reminders.dinner, ...(stored.meal_reminders?.dinner || {}) },
+      },
+    };
   },
 
   saveNotifications(notifs: NotificationSettings): void {
@@ -498,9 +582,27 @@ export const storage = {
     writeCache(STORAGE_KEYS.AI_PROVIDER, providerId);
   },
 
+  getAIFallbackProvider(): string {
+    return readCache<string>(STORAGE_KEYS.AI_FALLBACK_PROVIDER, OFFLINE_PROVIDER_ID);
+  },
+
+  saveAIFallbackProvider(providerId: string): void {
+    writeCache(STORAGE_KEYS.AI_FALLBACK_PROVIDER, providerId);
+  },
+
   getSelectedModel(providerId: string): string {
     const byProvider = readCache<Record<string, string>>(STORAGE_KEYS.AI_MODEL_BY_PROVIDER, {});
-    return byProvider[providerId] || getDefaultModelFor(providerId);
+    const stored = byProvider[providerId];
+    if (stored) {
+      // Guard against stale model ids left over from an app update that renamed/retired a
+      // model (e.g. an old 'gemini-3.1-pro' id that got corrected to 'gemini-3.1-pro-preview').
+      // If the stored id no longer matches anything in this provider's current model list,
+      // self-heal to the current default instead of silently sending a dead model id forever.
+      const def = getProviderDef(providerId);
+      const stillValid = def.models.some((m) => m.id === stored);
+      if (stillValid) return stored;
+    }
+    return getDefaultModelFor(providerId);
   },
 
   saveSelectedModel(providerId: string, modelId: string): void {

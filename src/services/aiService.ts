@@ -427,7 +427,14 @@ async function callGeminiFormat(baseUrl: string, model: string, apiKey: string, 
     contents: [...historyContents, { role: 'user', parts: userParts }],
   };
   if (opts.systemPrompt) {
-    body.systemInstruction = { role: 'system', parts: [{ text: opts.systemPrompt }] };
+    // Gemini's `contents`/`systemInstruction` Content objects only accept role
+    // 'user' or 'model' — there is no 'system' role in this API. Sending role:'system'
+    // here doesn't match the documented request shape; some models silently ignore
+    // unrecognized fields, but this is exactly the kind of extra/invalid field that a
+    // stricter model can reject outright (or intermittently misbehave on) while an
+    // older, more lenient model quietly tolerates it — which would explain "some
+    // Gemini models fail, other providers are fine, other Gemini models are fine."
+    body.systemInstruction = { parts: [{ text: opts.systemPrompt }] };
   }
   const res = await fetch(`${baseUrl}/${model}:generateContent?key=${apiKey}`, {
     method: 'POST',
@@ -516,8 +523,8 @@ async function callAnthropicFormat(baseUrl: string, model: string, apiKey: strin
 // Central entry point every AI-powered feature routes through. Resolves the user's
 // currently selected provider + model + key from storage, dispatches to the matching
 // request shape, and drops images silently for providers/models that don't support vision.
-async function callAIProvider(opts: AICallOptions): Promise<{ text: string }> {
-  const providerId = storage.getAIProvider();
+async function callAIProvider(opts: AICallOptions, providerIdOverride?: string): Promise<{ text: string }> {
+  const providerId = providerIdOverride || storage.getAIProvider();
   if (providerId === 'offline') {
     throw { code: 'no_api_key', message: 'Offline engine selected' };
   }
@@ -546,6 +553,34 @@ async function callAIProvider(opts: AICallOptions): Promise<{ text: string }> {
     return callAnthropicFormat(baseUrl, model, apiKey, opts, canSendImage);
   }
   return callOpenAIFormat(baseUrl, model, apiKey, opts, canSendImage);
+}
+
+// Wraps callAIProvider with a single automatic retry against the user's configured fallback
+// provider (Profile > AI Coach > Fallback provider) if the primary provider fails for any
+// reason (invalid/expired key, rate limit, network error, etc). If no fallback is configured,
+// or the fallback also fails, the *original* primary error is what gets thrown — so existing
+// callers' error-handling (which inspects err.code/err.status to build a fallbackReason) keeps
+// working exactly as before, whether or not a fallback provider was tried in between.
+async function callAIProviderWithFallback(opts: AICallOptions): Promise<{ text: string } & { providerUsed?: string }> {
+  const primaryId = storage.getAIProvider();
+  try {
+    const result = await callAIProvider(opts, primaryId);
+    return { ...result, providerUsed: primaryId };
+  } catch (primaryErr: any) {
+    const fallbackId = storage.getAIFallbackProvider();
+    const fallbackHasKey = fallbackId && fallbackId !== 'offline' && fallbackId !== primaryId && (storage.getAIKeyFor(fallbackId) || !getProviderDef(fallbackId).requiresKey);
+    if (!fallbackHasKey) {
+      throw primaryErr;
+    }
+    try {
+      const result = await callAIProvider(opts, fallbackId);
+      return { ...result, providerUsed: fallbackId };
+    } catch {
+      // Both providers failed — surface the *primary's* error, since that's the one the
+      // user actually configured as their main choice and is most relevant to fix.
+      throw primaryErr;
+    }
+  }
 }
 
 function extractJSON(text: string): any {
@@ -586,7 +621,7 @@ export async function askAIWithMetadata(
       content: m.content,
     }));
 
-    const { text } = await callAIProvider({ systemPrompt: systemPreamble, userText: prompt, history });
+    const { text } = await callAIProviderWithFallback({ systemPrompt: systemPreamble, userText: prompt, history });
 
     if (text) {
       return { content: text, source: 'ai_api', model_used: model };
@@ -647,7 +682,7 @@ export async function analyzeHypotheticalMeal(
 
   try {
     if (storage.getAIProvider() === 'offline') throw { code: 'no_api_key' };
-    const { text } = await callAIProvider({ userText: prompt });
+    const { text } = await callAIProviderWithFallback({ userText: prompt });
     if (text) return text;
   } catch (e) {
     // fall through to deterministic advice below
@@ -688,10 +723,31 @@ export interface EvaluatedFoodResponse {
   ingredients_breakdown?: string[];
   nutritional_notes?: string;
   fallback?: boolean;
-  source?: 'ai_api' | 'local_dictionary' | 'local_generic' | 'local_fallback';
+  source?: 'ai_api' | 'local_dictionary' | 'local_generic' | 'local_fallback' | 'barcode_off';
   fallbackReason?: string;
   modelUsed?: string;
   errorDetails?: string;
+}
+
+/**
+ * Turns a fallback reason + raw error details into a message the user can actually act on,
+ * instead of the generic "connect an AI provider" text that used to show even when a
+ * provider *was* connected and the call genuinely failed (masking real errors — e.g. an
+ * invalid key, a rate limit, or a network issue — as if no provider had been set up at all).
+ */
+export function describeFallbackReason(reason?: string, errorDetails?: string): string {
+  switch (reason) {
+    case 'user_selected_offline':
+      return 'Offline estimate — connect an AI provider in Profile for AI-powered estimates.';
+    case 'no_api_key':
+      return 'Offline estimate — no valid API key found for your selected provider. Check your key in Profile.';
+    case 'rate_limit_429':
+      return 'Offline estimate — your AI provider is rate-limiting requests right now. Try again shortly.';
+    case 'network_error':
+      return `Offline estimate — the AI request failed${errorDetails ? `: ${errorDetails}` : ' (network or server error)'}.`;
+    default:
+      return errorDetails ? `Offline estimate — ${errorDetails}` : 'Offline estimate — the AI request failed unexpectedly.';
+  }
 }
 
 // Common dish lookup table for offline nutrition estimates (used when there's no API key or no signal)
@@ -714,7 +770,7 @@ export async function evaluateFoodServing(foodPrompt: string, mealType: string =
   const model = storage.getSelectedModel(providerId);
   try {
     const prompt = `Estimate nutrition for this ${mealType} food description: "${foodPrompt}". Respond ONLY with a raw JSON object (no markdown fences) with keys: food_name (string), serving_description (string), quantity (number), unit (string), estimated_grams (number), calories (number), protein (number), carbs (number), fat (number), fiber (number), confidence ("high"|"medium"|"approximate"), ingredients_breakdown (array of short strings), nutritional_notes (string).`;
-    const { text } = await callAIProvider({ userText: prompt });
+    const { text } = await callAIProviderWithFallback({ userText: prompt });
     const data = extractJSON(text);
     if (data && data.food_name) {
       return { ...data, source: 'ai_api', modelUsed: model, fallback: false };
@@ -753,7 +809,7 @@ export async function evaluateFoodPhoto(
 
   try {
     const instruction = `Look at this photo of food being logged as a ${mealType}.${note ? ` The user added this note: "${note}".` : ''} Identify what's in the photo and estimate its nutrition as eaten (account for visible portion size). Respond ONLY with a raw JSON object (no markdown fences) with keys: food_name (string), serving_description (string), quantity (number), unit (string), estimated_grams (number), calories (number), protein (number), carbs (number), fat (number), fiber (number), confidence ("high"|"medium"|"approximate"), ingredients_breakdown (array of short strings), nutritional_notes (string). If the photo contains a packaged food label, read the label's per-serving values instead of guessing.`;
-    const { text } = await callAIProvider({ userText: instruction, imageBase64: base64Image, imageMimeType: mimeType });
+    const { text } = await callAIProviderWithFallback({ userText: instruction, imageBase64: base64Image, imageMimeType: mimeType });
     const data = extractJSON(text);
     if (data && data.food_name) {
       return { ...data, source: 'ai_api', modelUsed: model, fallback: false };
@@ -801,7 +857,7 @@ export async function fetchSmartSuggestions(
   try {
     if (providerId === 'offline') throw { code: 'no_api_key' };
     const prompt = `Given this user profile: ${JSON.stringify(profile.units)}, calorie target ${profile.calorie_target}, avg protein ${avgProteinG}g, avg steps ${avgSteps}, current deficit ${currentDeficit} kcal/day, and recent foods ${JSON.stringify(recentFoods)}, suggest 3-4 practical dietary swaps/tweaks to accelerate progress toward losing ${remainingWeightKg.toFixed(1)}kg. Respond ONLY with raw JSON (no markdown fences): { "analysis_summary": string, "suggestions": [{ "title": string, "category": string, "description": string, "calorieDelta": number, "proteinDeltaG": number, "difficulty": "Easy"|"Moderate", "targetedHabit": string }] }`;
-    const { text } = await callAIProvider({ userText: prompt });
+    const { text } = await callAIProviderWithFallback({ userText: prompt });
     const data = extractJSON(text);
     if (data && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
       const formattedSuggestions: SmartAlternativeOption[] = data.suggestions.map((s: any, idx: number) => {
