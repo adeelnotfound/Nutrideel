@@ -17,7 +17,7 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#020617"
       },
-      "permissions": ["SCHEDULE_EXACT_ALARM", "POST_NOTIFICATIONS"]
+      "permissions": ["SCHEDULE_EXACT_ALARM", "POST_NOTIFICATIONS", "CAMERA"]
     },
     "ios": {
       "supportsTablet": true,
@@ -29,6 +29,13 @@
         {
           "icon": "./assets/adaptive-icon.png",
           "color": "#10b981"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Nutrideel uses your photo library so you can log a meal from an existing picture.",
+          "cameraPermission": "Nutrideel uses your camera so you can snap a photo of your food to log it."
         }
       ]
     ],

@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius, mealTypeMeta } from '../../theme';
+import { radius, getMealTypeMeta } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { Meal, MealType, FoodEntry } from '../../types';
 
 interface Props {
@@ -14,6 +15,9 @@ interface Props {
 }
 
 export default function MealCard({ mealType, meals, onAddFood, onDeleteFood, onEditFood }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
+  const mealTypeMeta = getMealTypeMeta(colors);
   const meta = mealTypeMeta[mealType] || mealTypeMeta.custom;
   const allFoods = meals.flatMap((m) => m.foods.map((f) => ({ food: f, mealId: m.id })));
   const totalCals = allFoods.reduce((acc, x) => acc + (x.food.calories || 0), 0);
@@ -23,7 +27,7 @@ export default function MealCard({ mealType, meals, onAddFood, onDeleteFood, onE
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View style={[styles.iconWrap, { backgroundColor: meta.bg }]}>
-            <Text style={{ fontSize: 16 }}>{meta.emoji}</Text>
+            <Ionicons name={meta.icon as any} size={17} color={meta.color} />
           </View>
           <View>
             <Text style={styles.title}>{meta.label}</Text>
@@ -59,7 +63,7 @@ export default function MealCard({ mealType, meals, onAddFood, onDeleteFood, onE
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   card: { backgroundColor: colors.card, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.border, padding: 14, marginBottom: 10 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   headerLeft: { flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1 },

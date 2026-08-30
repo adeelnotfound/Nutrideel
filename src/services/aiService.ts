@@ -17,6 +17,8 @@ import {
   getSmartNutritionalSuggestions,
 } from '../utils/calculations';
 import { storage } from './storage';
+import { getProviderDef, modelSupportsVision } from './aiProviders';
+import { estimateFoodOffline } from './offlineFoodEngine';
 
 export interface AIContextSnapshot {
   profile: {
@@ -397,43 +399,37 @@ Today's Live Status:
 Ask me anything about meal options, macro swaps, weight trends, or pre-logging hypothetical foods!`;
 }
 
-// ----------------- Direct on-device Gemini API calls (no backend server) ----------------- //
-// There's no server to hide an API key behind, so the key is entered by the user in
-// Profile > AI Settings and stored locally, then used to call the Gemini REST API directly
-// from the device. Every call degrades gracefully to the local heuristic engine above if
-// there's no key, no network, or an API error.
+// ----------------- Direct on-device multi-provider AI calls (no backend server) ----------------- //
+// There's no server to hide an API key behind, so keys are entered by the user in
+// Profile > AI Access, stored encrypted on-device, and used to call the chosen
+// provider's REST API directly from the device. Every call degrades gracefully to
+// the local heuristic engine above if there's no key, no network, or an API error.
+// The offline engine is picked the same way as any other provider (see aiProviders.ts).
 
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models';
-
-// Curated list of models that are actually free-tier eligible as of the model's release
-// (Google restricts Pro-tier models to paid billing — see docs). Flash-family models are
-// the ones with a real free tier. This list is intentionally not exhaustive of every model
-// Google ships — it's the practical "these work well and are free" picks. If Google renames
-// or retires a model, users can still type a custom model ID in Profile settings.
-export interface GeminiModelOption {
-  id: string;
-  label: string;
-  description: string;
-  tier: 'recommended' | 'fast' | 'lite';
+export interface AICallOptions {
+  systemPrompt?: string;
+  userText: string;
+  imageBase64?: string;
+  imageMimeType?: string;
+  history?: { role: 'user' | 'assistant'; content: string }[];
 }
 
-export const GEMINI_MODELS: GeminiModelOption[] = [
-  { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash', description: 'Newest and strongest — best reasoning and accuracy, released Aug 2026.', tier: 'recommended' },
-  { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash', description: 'Previous newest-gen — excellent quality, slightly older than 3.7.', tier: 'recommended' },
-  { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash', description: 'Older but very proven and reliable. Good fallback if newer models are rate-limited.', tier: 'fast' },
-  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite', description: 'Newer generation, lightweight — very high free-tier request limits.', tier: 'lite' },
-  { id: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite', description: 'Fastest and cheapest older-gen option — best if you hit rate limits often.', tier: 'lite' },
-  { id: 'local-neural-fast', label: 'Offline (No API Key Needed)', description: 'Runs fully on-device with no internet or key. Less nuanced, always available.', tier: 'lite' },
-];
-
-export const DEFAULT_GEMINI_MODEL = 'gemini-3.7-flash';
-
-async function callGemini(model: string, body: any): Promise<any> {
-  const apiKey = storage.getGeminiApiKey();
-  if (!apiKey) {
-    throw { code: 'no_api_key', message: 'No Gemini API key configured' };
+async function callGeminiFormat(baseUrl: string, model: string, apiKey: string, opts: AICallOptions) {
+  const historyContents = (opts.history || []).map((h) => ({
+    role: h.role === 'assistant' ? 'model' : 'user',
+    parts: [{ text: h.content }],
+  }));
+  const userParts: any[] = [{ text: opts.userText }];
+  if (opts.imageBase64) {
+    userParts.push({ inline_data: { mime_type: opts.imageMimeType || 'image/jpeg', data: opts.imageBase64 } });
   }
-  const res = await fetch(`${GEMINI_BASE}/${model}:generateContent?key=${apiKey}`, {
+  const body: any = {
+    contents: [...historyContents, { role: 'user', parts: userParts }],
+  };
+  if (opts.systemPrompt) {
+    body.systemInstruction = { role: 'system', parts: [{ text: opts.systemPrompt }] };
+  }
+  const res = await fetch(`${baseUrl}/${model}:generateContent?key=${apiKey}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
@@ -445,7 +441,111 @@ async function callGemini(model: string, body: any): Promise<any> {
     throw err;
   }
   const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') || '';
-  return { text, raw: data };
+  return { text };
+}
+
+async function callOpenAIFormat(baseUrl: string, model: string, apiKey: string, opts: AICallOptions, canSendImage: boolean) {
+  const messages: any[] = [];
+  if (opts.systemPrompt) messages.push({ role: 'system', content: opts.systemPrompt });
+  (opts.history || []).forEach((h) => messages.push({ role: h.role, content: h.content }));
+
+  if (opts.imageBase64 && canSendImage) {
+    messages.push({
+      role: 'user',
+      content: [
+        { type: 'text', text: opts.userText },
+        { type: 'image_url', image_url: { url: `data:${opts.imageMimeType || 'image/jpeg'};base64,${opts.imageBase64}` } },
+      ],
+    });
+  } else {
+    messages.push({ role: 'user', content: opts.userText });
+  }
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`;
+
+  const res = await fetch(`${baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({ model, messages }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err: any = new Error(data?.error?.message || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  const text = data?.choices?.[0]?.message?.content || '';
+  return { text };
+}
+
+async function callAnthropicFormat(baseUrl: string, model: string, apiKey: string, opts: AICallOptions, canSendImage: boolean) {
+  const messages: any[] = (opts.history || []).map((h) => ({ role: h.role, content: h.content }));
+
+  if (opts.imageBase64 && canSendImage) {
+    messages.push({
+      role: 'user',
+      content: [
+        { type: 'image', source: { type: 'base64', media_type: opts.imageMimeType || 'image/jpeg', data: opts.imageBase64 } },
+        { type: 'text', text: opts.userText },
+      ],
+    });
+  } else {
+    messages.push({ role: 'user', content: opts.userText });
+  }
+
+  const res = await fetch(`${baseUrl}/messages`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+    },
+    body: JSON.stringify({ model, max_tokens: 1536, system: opts.systemPrompt, messages }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err: any = new Error(data?.error?.message || `HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  const text = (data?.content || []).map((b: any) => b.text || '').join('');
+  return { text };
+}
+
+// Central entry point every AI-powered feature routes through. Resolves the user's
+// currently selected provider + model + key from storage, dispatches to the matching
+// request shape, and drops images silently for providers/models that don't support vision.
+async function callAIProvider(opts: AICallOptions): Promise<{ text: string }> {
+  const providerId = storage.getAIProvider();
+  if (providerId === 'offline') {
+    throw { code: 'no_api_key', message: 'Offline engine selected' };
+  }
+
+  const def = getProviderDef(providerId);
+  const apiKey = storage.getAIKeyFor(providerId);
+  const baseUrl = providerId === 'custom' ? storage.getCustomBaseUrl() : def.baseUrl;
+  const model = storage.getSelectedModel(providerId);
+
+  if (def.requiresKey && !apiKey) {
+    throw { code: 'no_api_key', message: `No ${def.label} API key configured` };
+  }
+  if (!baseUrl) {
+    throw { code: 'no_api_key', message: `No base URL configured for ${def.label}` };
+  }
+  if (!model) {
+    throw { code: 'no_api_key', message: `No model selected for ${def.label}` };
+  }
+
+  const canSendImage = modelSupportsVision(providerId, model);
+
+  if (def.apiFormat === 'gemini') {
+    return callGeminiFormat(baseUrl, model, apiKey, opts);
+  }
+  if (def.apiFormat === 'anthropic') {
+    return callAnthropicFormat(baseUrl, model, apiKey, opts, canSendImage);
+  }
+  return callOpenAIFormat(baseUrl, model, apiKey, opts, canSendImage);
 }
 
 function extractJSON(text: string): any {
@@ -458,7 +558,7 @@ function extractJSON(text: string): any {
 
 export interface AIResponseWithMetadata {
   content: string;
-  source: 'gemini_api' | 'local_fallback' | 'local_heuristic';
+  source: 'ai_api' | 'local_fallback' | 'local_heuristic';
   model_used?: string;
   fallback_reason?: string;
   error_details?: string;
@@ -467,10 +567,10 @@ export interface AIResponseWithMetadata {
 export async function askAIWithMetadata(
   prompt: string,
   contextSnapshot: AIContextSnapshot,
-  conversationHistory: AIMessage[] = [],
-  model: string = DEFAULT_GEMINI_MODEL
+  conversationHistory: AIMessage[] = []
 ): Promise<AIResponseWithMetadata> {
-  if (model === 'local-neural-fast') {
+  const providerId = storage.getAIProvider();
+  if (providerId === 'offline') {
     return {
       content: generateDeterministicAIAnswer(prompt, contextSnapshot),
       source: 'local_heuristic',
@@ -478,23 +578,18 @@ export async function askAIWithMetadata(
     };
   }
 
+  const model = storage.getSelectedModel(providerId);
   try {
     const systemPreamble = `You are Nutrideel's AI Nutrition & Metabolic Coach. Answer concisely and practically using the JSON context below. Do not repeat the raw JSON back to the user.\n\nCONTEXT:\n${JSON.stringify(contextSnapshot)}`;
-    const contents = [
-      ...conversationHistory.slice(-6).map((m) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-      })),
-      { role: 'user', parts: [{ text: prompt }] },
-    ];
+    const history = conversationHistory.slice(-6).map((m) => ({
+      role: (m.role === 'assistant' ? 'assistant' : 'user') as 'user' | 'assistant',
+      content: m.content,
+    }));
 
-    const { text } = await callGemini(model, {
-      systemInstruction: { role: 'system', parts: [{ text: systemPreamble }] },
-      contents,
-    });
+    const { text } = await callAIProvider({ systemPrompt: systemPreamble, userText: prompt, history });
 
     if (text) {
-      return { content: text, source: 'gemini_api', model_used: model };
+      return { content: text, source: 'ai_api', model_used: model };
     }
     throw new Error('Empty response');
   } catch (error: any) {
@@ -512,10 +607,9 @@ export async function askAIWithMetadata(
 export async function askAI(
   prompt: string,
   contextSnapshot: AIContextSnapshot,
-  conversationHistory: AIMessage[] = [],
-  model: string = DEFAULT_GEMINI_MODEL
+  conversationHistory: AIMessage[] = []
 ): Promise<string> {
-  const res = await askAIWithMetadata(prompt, contextSnapshot, conversationHistory, model);
+  const res = await askAIWithMetadata(prompt, contextSnapshot, conversationHistory);
   return res.content;
 }
 
@@ -536,7 +630,6 @@ export async function askAIAssistant(
 export async function analyzeHypotheticalMeal(
   hypotheticalMeal: HypotheticalMeal,
   contextSnapshot: AIContextSnapshot,
-  model: string = DEFAULT_GEMINI_MODEL
 ): Promise<string> {
   let hypCals = 0;
   let hypProt = 0;
@@ -553,9 +646,8 @@ export async function analyzeHypotheticalMeal(
   const prompt = `Hypothetical Pre-Log Meal Analysis:\nMeal Items: ${hypotheticalMeal.items.map((i) => `${i.food_name} (${i.quantity} ${i.unit}, ${i.calories} kcal, ${i.protein}g P, ${i.carbs}g C, ${i.fat}g F)`).join(', ')}\nCurrent Logged Today: ${contextSnapshot.today.calories_logged} kcal, ${contextSnapshot.today.protein_logged_g}g P\nProjected Total If Eaten: ${totalProjectedCals} kcal / ${contextSnapshot.today.calorie_target} kcal target (Delta: ${calDelta > 0 ? '+' : ''}${calDelta} kcal)\nProjected Protein: ${totalProjectedProt}g / ${contextSnapshot.today.protein_target_g}g target\nIs this a reasonable choice given my remaining calories and today's macros? Keep the answer under 120 words.`;
 
   try {
-    const { text } = await callGemini(model, {
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    });
+    if (storage.getAIProvider() === 'offline') throw { code: 'no_api_key' };
+    const { text } = await callAIProvider({ userText: prompt });
     if (text) return text;
   } catch (e) {
     // fall through to deterministic advice below
@@ -596,7 +688,7 @@ export interface EvaluatedFoodResponse {
   ingredients_breakdown?: string[];
   nutritional_notes?: string;
   fallback?: boolean;
-  source?: 'gemini_api' | 'local_dictionary' | 'local_generic' | 'local_fallback';
+  source?: 'ai_api' | 'local_dictionary' | 'local_generic' | 'local_fallback';
   fallbackReason?: string;
   modelUsed?: string;
   errorDetails?: string;
@@ -604,139 +696,28 @@ export interface EvaluatedFoodResponse {
 
 // Common dish lookup table for offline nutrition estimates (used when there's no API key or no signal)
 export function evaluateVagueFoodLocally(input: string, reason: string = 'offline_dictionary'): EvaluatedFoodResponse {
-  const clean = input.toLowerCase().trim();
-
-  let multiplier = 1.0;
-  let detectedUnit = 'portion';
-  let unitDesc = '1 standard portion';
-
-  if (clean.includes('half plate') || clean.includes('1/2 plate') || clean.includes('0.5 plate')) {
-    multiplier = 0.5;
-    detectedUnit = 'half plate';
-    unitDesc = 'Half plate (~180-220g)';
-  } else if (clean.includes('quarter plate') || clean.includes('1/4 plate')) {
-    multiplier = 0.3;
-    detectedUnit = 'quarter plate';
-    unitDesc = 'Quarter plate (~120g)';
-  } else if (clean.includes('2 plate') || clean.includes('two plate')) {
-    multiplier = 2.0;
-    detectedUnit = 'plates';
-    unitDesc = '2 full plates (~750g)';
-  } else if (clean.includes('plate')) {
-    multiplier = 1.0;
-    detectedUnit = 'plate';
-    unitDesc = '1 standard plate (~380g)';
-  } else if (clean.includes('small bowl')) {
-    multiplier = 0.7;
-    detectedUnit = 'small bowl';
-    unitDesc = '1 small bowl (~180g)';
-  } else if (clean.includes('big bowl') || clean.includes('large bowl')) {
-    multiplier = 1.4;
-    detectedUnit = 'big bowl';
-    unitDesc = '1 large bowl (~450g)';
-  } else if (clean.includes('bowl')) {
-    multiplier = 1.0;
-    detectedUnit = 'bowl';
-    unitDesc = '1 standard bowl (~300g)';
-  } else if (clean.includes('2 slice') || clean.includes('two slice')) {
-    multiplier = 2.0;
-    detectedUnit = 'slices';
-    unitDesc = '2 slices (~220g)';
-  } else if (clean.includes('3 slice')) {
-    multiplier = 3.0;
-    detectedUnit = 'slices';
-    unitDesc = '3 slices (~330g)';
-  } else if (clean.includes('slice')) {
-    multiplier = 1.0;
-    detectedUnit = 'slice';
-    unitDesc = '1 slice (~110g)';
-  } else if (clean.includes('cup')) {
-    multiplier = 1.0;
-    detectedUnit = 'cup';
-    unitDesc = '1 cup (~240g)';
-  } else if (clean.includes('can') || clean.includes('bottle')) {
-    multiplier = 1.0;
-    detectedUnit = 'can';
-    unitDesc = '1 can / bottle (330ml)';
-  }
-
-  const dishes: { keywords: string[]; name: string; baseGrams: number; cals: number; p: number; c: number; f: number; fib: number; notes: string; breakdown: string[] }[] = [
-    { keywords: ['biryani', 'biriyani', 'bryani'], name: 'Chicken Biryani with Basmati Rice', baseGrams: 380, cals: 580, p: 34, c: 72, f: 17, fib: 3, notes: 'High protein spiced rice meal prepared with chicken breast/thigh, basmati rice, and cooking ghee.', breakdown: ['Spiced Basmati Rice (~220g): 280 kcal', 'Marinated Chicken (~120g): 210 kcal', 'Ghee, Yogurt & Spices: 90 kcal'] },
-    { keywords: ['pasta', 'spaghetti', 'fettuccine', 'penne', 'macaroni'], name: 'Pasta with Sauce & Seasoning', baseGrams: 320, cals: 460, p: 16, c: 68, f: 14, fib: 4, notes: 'Enriched durum wheat pasta with tomato/cream blend and olive oil.', breakdown: ['Cooked Pasta (~220g): 310 kcal', 'Sauce & Seasoning (~80g): 90 kcal', 'Olive oil & Cheese: 60 kcal'] },
-    { keywords: ['pizza'], name: 'Oven-Baked Pizza', baseGrams: 240, cals: 520, p: 22, c: 58, f: 22, fib: 3, notes: 'Crust topped with mozzarella cheese, crushed tomato sauce, and herbs.', breakdown: ['Flour Crust: 290 kcal', 'Mozzarella Cheese: 160 kcal', 'Tomato Sauce & Toppings: 70 kcal'] },
-    { keywords: ['burger', 'cheeseburger', 'hamburger'], name: 'Classic Grilled Burger', baseGrams: 260, cals: 540, p: 28, c: 44, f: 27, fib: 2, notes: 'Beef or chicken patty on a toasted bun with cheese and condiments.', breakdown: ['Patty (~120g): 270 kcal', 'Toasted Bun: 180 kcal', 'Cheese & Sauce: 90 kcal'] },
-    { keywords: ['karahi', 'curry', 'salan', 'qorma', 'korma', 'chicken tikka'], name: 'Chicken Karahi Curry', baseGrams: 300, cals: 440, p: 38, c: 12, f: 26, fib: 2, notes: 'Tender chicken simmered in tomatoes, ginger, garlic, and oil.', breakdown: ['Chicken (~180g): 280 kcal', 'Tomato Gravy: 60 kcal', 'Cooking Oil & Spices: 100 kcal'] },
-    { keywords: ['roti', 'chapati', 'naan', 'bread', 'tortilla'], name: 'Whole Wheat Roti / Flatbread', baseGrams: 70, cals: 150, p: 5, c: 30, f: 1.5, fib: 3, notes: 'Traditional stone-ground whole wheat flatbread.', breakdown: ['Whole Wheat Flour (45g): 140 kcal', 'Water & Pinch of Salt: 10 kcal'] },
-    { keywords: ['daal', 'dal', 'lentil', 'lentils'], name: 'Lentil Daal with Tempering', baseGrams: 250, cals: 240, p: 13, c: 34, f: 6, fib: 8, notes: 'High-fiber yellow or red lentils tempered with cumin, garlic, and ghee.', breakdown: ['Cooked Lentils (~200g): 180 kcal', 'Tarka Ghee & Spices: 60 kcal'] },
-    { keywords: ['egg', 'eggs', 'scrambled', 'omelette', 'omelet'], name: 'Whole Eggs (Prepared)', baseGrams: 120, cals: 190, p: 14, c: 2, f: 14, fib: 0, notes: 'High bioavailability complete protein with healthy fats and choline.', breakdown: ['2 Large Eggs: 144 kcal', 'Cooking butter/oil: 46 kcal'] },
-    { keywords: ['oatmeal', 'oats', 'porridge'], name: 'Rolled Oats Porridge', baseGrams: 280, cals: 290, p: 11, c: 48, f: 6, fib: 6, notes: 'Complex low-GI carbohydrate source rich in beta-glucan soluble fiber.', breakdown: ['Rolled Oats (50g dry): 190 kcal', 'Milk / Water (~200ml): 80 kcal', 'Natural flavor: 20 kcal'] },
-    { keywords: ['shake', 'whey', 'protein shake', 'smoothie'], name: 'Whey Protein Shake', baseGrams: 350, cals: 210, p: 30, c: 12, f: 3.5, fib: 2, notes: 'Rapidly absorbed complete amino acid profile ideal for muscle recovery.', breakdown: ['Whey Isolate Scoop (30g): 120 kcal (25g P)', 'Milk/Base (250ml): 90 kcal'] },
-    { keywords: ['salad', 'greens'], name: 'Garden Fresh Salad with Dressing', baseGrams: 220, cals: 180, p: 5, c: 14, f: 12, fib: 5, notes: 'Micronutrient-dense mix of greens, cucumbers, peppers, and light olive vinaigrette.', breakdown: ['Mixed Greens & Veggies: 50 kcal', 'Vinaigrette Dressing: 130 kcal'] },
-    { keywords: ['coke', 'soda', 'pepsi', 'cola', 'sprite'], name: 'Carbonated Soft Drink', baseGrams: 330, cals: 140, p: 0, c: 35, f: 0, fib: 0, notes: 'High simple sugar beverage.', breakdown: ['Liquid (~330ml): 140 kcal (35g simple sugars)'] },
-    { keywords: ['coffee', 'latte', 'cappuccino', 'tea', 'chai'], name: 'Milk Tea / Latte Coffee', baseGrams: 240, cals: 110, p: 5, c: 12, f: 4, fib: 0, notes: 'Warm beverage with milk and modest sugar.', breakdown: ['Milk (~150ml): 85 kcal', 'Sugar (1 tsp): 25 kcal'] },
-  ];
-
-  const matched = dishes.find((d) => d.keywords.some((k) => clean.includes(k)));
-
-  if (matched) {
-    return {
-      food_name: matched.name,
-      serving_description: unitDesc,
-      quantity: multiplier,
-      unit: detectedUnit,
-      estimated_grams: Math.round(matched.baseGrams * multiplier),
-      calories: Math.round(matched.cals * multiplier),
-      protein: Math.round(matched.p * multiplier),
-      carbs: Math.round(matched.c * multiplier),
-      fat: Math.round(matched.f * multiplier),
-      fiber: Math.round(matched.fib * multiplier),
-      confidence: 'approximate',
-      ingredients_breakdown: matched.breakdown,
-      nutritional_notes: matched.notes,
-      fallback: true,
-      source: 'local_dictionary',
-      fallbackReason: reason,
-    };
-  }
-
-  const capitalized = input.charAt(0).toUpperCase() + input.slice(1);
+  const match = estimateFoodOffline(input);
   return {
-    food_name: capitalized,
-    serving_description: unitDesc,
-    quantity: multiplier,
-    unit: detectedUnit,
-    estimated_grams: Math.round(260 * multiplier),
-    calories: Math.round(360 * multiplier),
-    protein: Math.round(18 * multiplier),
-    carbs: Math.round(44 * multiplier),
-    fat: Math.round(12 * multiplier),
-    fiber: Math.round(3 * multiplier),
-    confidence: 'rough_estimate',
-    ingredients_breakdown: [`Standard balanced serving of ${capitalized}`, 'Estimated ~50% carbs, 20% protein, 30% healthy fats'],
-    nutritional_notes: `Offline generic estimate for "${input}". You can refine grams or macros anytime.`,
+    ...match,
     fallback: true,
-    source: 'local_generic',
+    source: match.confidence === 'rough_estimate' ? 'local_generic' : 'local_dictionary',
     fallbackReason: reason,
   };
 }
 
-export async function evaluateFoodServing(
-  foodPrompt: string,
-  mealType: string = 'meal',
-  model: string = DEFAULT_GEMINI_MODEL
-): Promise<EvaluatedFoodResponse> {
-  if (model === 'local-neural-fast') {
+export async function evaluateFoodServing(foodPrompt: string, mealType: string = 'meal'): Promise<EvaluatedFoodResponse> {
+  const providerId = storage.getAIProvider();
+  if (providerId === 'offline') {
     return evaluateVagueFoodLocally(foodPrompt, 'user_selected_offline');
   }
 
+  const model = storage.getSelectedModel(providerId);
   try {
     const prompt = `Estimate nutrition for this ${mealType} food description: "${foodPrompt}". Respond ONLY with a raw JSON object (no markdown fences) with keys: food_name (string), serving_description (string), quantity (number), unit (string), estimated_grams (number), calories (number), protein (number), carbs (number), fat (number), fiber (number), confidence ("high"|"medium"|"approximate"), ingredients_breakdown (array of short strings), nutritional_notes (string).`;
-    const { text } = await callGemini(model, {
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    });
+    const { text } = await callAIProvider({ userText: prompt });
     const data = extractJSON(text);
     if (data && data.food_name) {
-      return { ...data, source: 'gemini_api', modelUsed: model, fallback: false };
+      return { ...data, source: 'ai_api', modelUsed: model, fallback: false };
     }
     throw new Error('Malformed AI response');
   } catch (err: any) {
@@ -747,10 +728,49 @@ export async function evaluateFoodServing(
   }
 }
 
+export async function evaluateFoodPhoto(
+  base64Image: string,
+  mimeType: string,
+  mealType: string = 'meal',
+  note: string = ''
+): Promise<EvaluatedFoodResponse> {
+  const providerId = storage.getAIProvider();
+  if (providerId === 'offline') {
+    return evaluateVagueFoodLocally(note || 'photo of food', 'user_selected_offline');
+  }
+
+  const model = storage.getSelectedModel(providerId);
+
+  // Providers/models without vision support can't see the photo — if the user added
+  // a text note, fall back to a text-only estimate from that note; otherwise there's
+  // nothing usable to send, so go straight to the offline dictionary.
+  if (!modelSupportsVision(providerId, model)) {
+    if (!note.trim()) {
+      return evaluateVagueFoodLocally('photo of food', 'provider_no_vision_support');
+    }
+    return evaluateFoodServing(note.trim(), mealType);
+  }
+
+  try {
+    const instruction = `Look at this photo of food being logged as a ${mealType}.${note ? ` The user added this note: "${note}".` : ''} Identify what's in the photo and estimate its nutrition as eaten (account for visible portion size). Respond ONLY with a raw JSON object (no markdown fences) with keys: food_name (string), serving_description (string), quantity (number), unit (string), estimated_grams (number), calories (number), protein (number), carbs (number), fat (number), fiber (number), confidence ("high"|"medium"|"approximate"), ingredients_breakdown (array of short strings), nutritional_notes (string). If the photo contains a packaged food label, read the label's per-serving values instead of guessing.`;
+    const { text } = await callAIProvider({ userText: instruction, imageBase64: base64Image, imageMimeType: mimeType });
+    const data = extractJSON(text);
+    if (data && data.food_name) {
+      return { ...data, source: 'ai_api', modelUsed: model, fallback: false };
+    }
+    throw new Error('Malformed AI response');
+  } catch (err: any) {
+    const reason = err?.code === 'no_api_key' ? 'no_api_key' : err?.status === 429 ? 'rate_limit_429' : 'network_error';
+    const fallbackResult = evaluateVagueFoodLocally(note || 'photo of food', reason);
+    fallbackResult.errorDetails = err?.message;
+    return fallbackResult;
+  }
+}
+
 export interface SmartSuggestionsResponse {
   analysisSummary: string;
   suggestions: SmartAlternativeOption[];
-  source: 'gemini_api' | 'local_fallback';
+  source: 'ai_api' | 'local_fallback';
   modelUsed?: string;
   isAiGenerated: boolean;
 }
@@ -760,12 +780,13 @@ export async function fetchSmartSuggestions(
   meals: Meal[],
   currentDeficit: number,
   avgProteinG: number,
-  avgSteps: number,
-  model: string = DEFAULT_GEMINI_MODEL
+  avgSteps: number
 ): Promise<SmartSuggestionsResponse> {
   const currentWeight = profile.current_weight_kg;
   const targetWeight = profile.goal_weight_kg;
   const remainingWeightKg = Math.max(0, currentWeight - targetWeight);
+  const providerId = storage.getAIProvider();
+  const model = storage.getSelectedModel(providerId);
 
   const recentFoodsMap = new Map<string, { food_name: string; calories: number; meal_type: string }>();
   meals.forEach((m) => {
@@ -778,10 +799,9 @@ export async function fetchSmartSuggestions(
   const recentFoods = Array.from(recentFoodsMap.values()).slice(0, 15);
 
   try {
+    if (providerId === 'offline') throw { code: 'no_api_key' };
     const prompt = `Given this user profile: ${JSON.stringify(profile.units)}, calorie target ${profile.calorie_target}, avg protein ${avgProteinG}g, avg steps ${avgSteps}, current deficit ${currentDeficit} kcal/day, and recent foods ${JSON.stringify(recentFoods)}, suggest 3-4 practical dietary swaps/tweaks to accelerate progress toward losing ${remainingWeightKg.toFixed(1)}kg. Respond ONLY with raw JSON (no markdown fences): { "analysis_summary": string, "suggestions": [{ "title": string, "category": string, "description": string, "calorieDelta": number, "proteinDeltaG": number, "difficulty": "Easy"|"Moderate", "targetedHabit": string }] }`;
-    const { text } = await callGemini(model, {
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-    });
+    const { text } = await callAIProvider({ userText: prompt });
     const data = extractJSON(text);
     if (data && Array.isArray(data.suggestions) && data.suggestions.length > 0) {
       const formattedSuggestions: SmartAlternativeOption[] = data.suggestions.map((s: any, idx: number) => {
@@ -797,13 +817,13 @@ export async function fetchSmartSuggestions(
           daysSavedOnGoal: daysSaved,
           difficulty: s.difficulty === 'Moderate' ? 'Moderate' : 'Easy',
           targetedHabit: s.targetedHabit,
-          source: 'gemini_api',
+          source: 'ai_api',
         };
       });
       return {
         analysisSummary: data.analysis_summary || 'Personalized dietary recommendations dynamically generated for your current intake and goal trajectory.',
         suggestions: formattedSuggestions,
-        source: 'gemini_api',
+        source: 'ai_api',
         modelUsed: model,
         isAiGenerated: true,
       };

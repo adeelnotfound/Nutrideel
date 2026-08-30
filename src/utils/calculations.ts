@@ -525,7 +525,7 @@ export interface SmartAlternativeOption {
   daysSavedOnGoal: number; // e.g. 14 days
   difficulty: 'Easy' | 'Moderate';
   targetedHabit?: string;
-  source?: 'gemini_api' | 'local_fallback';
+  source?: 'ai_api' | 'local_fallback';
 }
 
 export function calculateDaysSavedOnGoal(

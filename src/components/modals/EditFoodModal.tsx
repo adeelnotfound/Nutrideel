@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import Modal from '../common/Modal';
-import { colors, radius } from '../../theme';
+import { radius } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { FoodEntry } from '../../types';
 
 interface Props {
@@ -14,6 +15,8 @@ interface Props {
 }
 
 export default function EditFoodModal({ isOpen, onClose, mealId, food, onSave, onDelete }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [name, setName] = useState('');
   const [cals, setCals] = useState('');
   const [protein, setProtein] = useState('');
@@ -85,6 +88,8 @@ export default function EditFoodModal({ isOpen, onClose, mealId, food, onSave, o
 }
 
 function Field(props: { label: string; value: string; onChangeText: (t: string) => void; keyboardType?: 'numeric' }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <View style={{ flex: 1 }}>
       <Text style={styles.fieldLabel}>{props.label}</Text>
@@ -99,7 +104,7 @@ function Field(props: { label: string; value: string; onChangeText: (t: string) 
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   row2: { flexDirection: 'row', gap: 10 },
   fieldLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 4 },
   fieldInput: { backgroundColor: colors.cardAlt, borderRadius: radius.sm, padding: 10, color: colors.text, borderWidth: 1, borderColor: colors.border },

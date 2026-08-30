@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView, KeyboardAvoidingView, Platform } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { colors, radius } from '../../theme';
+import { Ionicons } from '@expo/vector-icons';
+import { radius } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { UserProfile, Gender, ActivityBaseline, GoalType } from '../../types';
 import { calculateRecommendedTargets, calculateBMI } from '../../utils/calculations';
 import { storage } from '../../services/storage';
@@ -19,15 +21,17 @@ const ACTIVITY_LEVELS: { id: ActivityBaseline; label: string; desc: string }[] =
   { id: 'very', label: 'Very Active', desc: 'Hard exercise 6-7 days/week' },
   { id: 'extra_active', label: 'Extra Active', desc: 'Physical job or 2x/day training' },
 ];
-const GOALS: { id: GoalType; label: string; emoji: string }[] = [
-  { id: 'lose', label: 'Lose Weight', emoji: '📉' },
-  { id: 'maintain', label: 'Maintain', emoji: '⚖️' },
-  { id: 'gain', label: 'Gain Weight', emoji: '📈' },
+const GOALS: { id: GoalType; label: string; icon: keyof typeof Ionicons.glyphMap }[] = [
+  { id: 'lose', label: 'Lose Weight', icon: 'trending-down' },
+  { id: 'maintain', label: 'Maintain', icon: 'remove' },
+  { id: 'gain', label: 'Gain Weight', icon: 'trending-up' },
 ];
 
 const STEPS = ['Name & Gender', 'Body Stats', 'Activity Level', 'Your Goal', 'Review'];
 
 export default function OnboardingWizard({ onComplete }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [step, setStep] = useState(0);
   const [name, setName] = useState('');
   const [gender, setGender] = useState<Gender>('male');
@@ -173,7 +177,7 @@ export default function OnboardingWizard({ onComplete }: Props) {
               <View style={styles.goalRow}>
                 {GOALS.map((g) => (
                   <Pressable key={g.id} style={[styles.goalCard, goal === g.id && styles.goalCardActive]} onPress={() => setGoal(g.id)}>
-                    <Text style={styles.goalEmoji}>{g.emoji}</Text>
+                    <Ionicons name={g.icon} size={22} color={goal === g.id ? colors.emerald : colors.textMuted} style={{ marginBottom: 6 }} />
                     <Text style={[styles.goalLabel, goal === g.id && styles.goalLabelActive]}>{g.label}</Text>
                   </Pressable>
                 ))}
@@ -230,6 +234,8 @@ export default function OnboardingWizard({ onComplete }: Props) {
 }
 
 function Field(props: { label: string; value: string; onChangeText: (t: string) => void; placeholder?: string; keyboardType?: 'numeric' | 'decimal-pad' }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <View style={{ flex: 1, marginBottom: 12 }}>
       <Text style={styles.fieldLabel}>{props.label}</Text>
@@ -246,6 +252,8 @@ function Field(props: { label: string; value: string; onChangeText: (t: string) 
 }
 
 function ReviewRow({ label, value, highlight }: { label: string; value: string; highlight?: boolean }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <View style={styles.reviewRow}>
       <Text style={styles.reviewLabel}>{label}</Text>
@@ -254,7 +262,7 @@ function ReviewRow({ label, value, highlight }: { label: string; value: string; 
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.bg },
   progressWrap: { paddingHorizontal: 20, paddingTop: 12, paddingBottom: 6 },
   stepLabel: { color: colors.textFaint, fontSize: 11, marginTop: 8, fontWeight: '600' },
@@ -278,7 +286,6 @@ const styles = StyleSheet.create({
   goalRow: { flexDirection: 'row', gap: 10 },
   goalCard: { flex: 1, padding: 16, borderRadius: radius.lg, backgroundColor: colors.cardAlt, borderWidth: 1, borderColor: colors.border, alignItems: 'center' },
   goalCardActive: { backgroundColor: colors.emeraldBg, borderColor: colors.emerald },
-  goalEmoji: { fontSize: 26 },
   goalLabel: { color: colors.textMuted, fontSize: 11.5, fontWeight: '700', marginTop: 8, textAlign: 'center' },
   goalLabelActive: { color: colors.emerald },
   rateHint: { color: colors.textFaint, fontSize: 10.5, marginTop: 4 },

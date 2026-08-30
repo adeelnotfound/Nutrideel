@@ -1,11 +1,11 @@
 import React from 'react';
 import { View, StyleSheet } from 'react-native';
-import { colors } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 
 export default function ProgressBar({
   pct,
-  color = colors.emerald,
-  bg = colors.cardAlt,
+  color,
+  bg,
   height = 8,
 }: {
   pct: number;
@@ -13,10 +13,13 @@ export default function ProgressBar({
   bg?: string;
   height?: number;
 }) {
+  const { colors } = useTheme();
+  const barColor = color ?? colors.emerald;
+  const barBg = bg ?? colors.cardAlt;
   const clamped = Math.max(0, Math.min(100, pct));
   return (
-    <View style={[styles.track, { backgroundColor: bg, height, borderRadius: height / 2 }]}>
-      <View style={[styles.fill, { width: `${clamped}%`, backgroundColor: color, borderRadius: height / 2 }]} />
+    <View style={[styles.track, { backgroundColor: barBg, height, borderRadius: height / 2 }]}>
+      <View style={[styles.fill, { width: `${clamped}%`, backgroundColor: barColor, borderRadius: height / 2 }]} />
     </View>
   );
 }

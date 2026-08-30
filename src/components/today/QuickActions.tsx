@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius } from '../../theme';
+import { radius } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { haptics } from '../../utils/haptics';
 
 interface Props {
@@ -12,15 +13,16 @@ interface Props {
   onOpenHypothetical: () => void;
 }
 
-const ACTIONS_META: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
-  { key: 'food', label: 'Add Food', icon: 'restaurant-outline', color: colors.emerald },
-  { key: 'weight', label: 'Log Weight', icon: 'scale-outline', color: colors.violet },
-  { key: 'activity', label: 'Log Activity', icon: 'walk-outline', color: colors.sky },
-  { key: 'fast', label: 'Log Fasting', icon: 'time-outline', color: colors.amber },
-  { key: 'hypothetical', label: 'What If Meal', icon: 'bulb-outline', color: colors.rose },
-];
-
 export default function QuickActions({ onAddFood, onLogWeight, onLogActivity, onLogFast, onOpenHypothetical }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
+  const ACTIONS_META: { key: string; label: string; icon: keyof typeof Ionicons.glyphMap; color: string }[] = [
+    { key: 'food', label: 'Add Food', icon: 'restaurant-outline', color: colors.emerald },
+    { key: 'weight', label: 'Log Weight', icon: 'scale-outline', color: colors.violet },
+    { key: 'activity', label: 'Log Activity', icon: 'walk-outline', color: colors.sky },
+    { key: 'fast', label: 'Log Fasting', icon: 'time-outline', color: colors.amber },
+    { key: 'hypothetical', label: 'What If Meal', icon: 'bulb-outline', color: colors.rose },
+  ];
   const [open, setOpen] = useState(false);
   const progress = useRef(new Animated.Value(0)).current;
   const rotation = useRef(new Animated.Value(0)).current;
@@ -93,7 +95,7 @@ export default function QuickActions({ onAddFood, onLogWeight, onLogActivity, on
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   wrap: { position: 'absolute', right: 18, bottom: 76, alignItems: 'flex-end' },
   fab: {
     width: 56,

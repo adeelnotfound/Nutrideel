@@ -1,7 +1,7 @@
 import React from 'react';
-import { View, Text, ScrollView, Pressable, StyleSheet } from 'react-native';
+import { View, Text, ScrollView, StyleSheet } from 'react-native';
 import { Meal, MealType, UserProfile, WeightEntry, ActivityEntry, FastingEntry, FoodEntry } from '../types';
-import { colors, radius } from '../theme';
+import { useTheme } from '../contexts/ThemeContext';
 import MacroSummary from '../components/today/MacroSummary';
 import MealCard from '../components/today/MealCard';
 import QuickActions from '../components/today/QuickActions';
@@ -33,6 +33,8 @@ interface Props {
 }
 
 export default function TodayScreen(props: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const { profile, todayMeals } = props;
 
   return (
@@ -73,15 +75,6 @@ export default function TodayScreen(props: Props) {
           ))}
         </View>
 
-        <View style={styles.dayDoneCard}>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.dayDoneTitle}>Finished logging for today?</Text>
-            <Text style={styles.dayDoneSub}>Lock in today's macros and advance to tomorrow.</Text>
-          </View>
-          <Pressable style={styles.dayDoneBtn} onPress={props.onOpenDayDone}>
-            <Text style={styles.dayDoneBtnText}>✨ Day Done</Text>
-          </Pressable>
-        </View>
         </FadeInView>
       </ScrollView>
 
@@ -96,22 +89,7 @@ export default function TodayScreen(props: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   scroll: { padding: 14, paddingBottom: 100, gap: 14 },
   mealsWrap: { marginTop: 14 },
-  dayDoneCard: {
-    marginTop: 4,
-    backgroundColor: colors.card,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: colors.border,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  dayDoneTitle: { color: colors.text, fontSize: 13, fontWeight: '800' },
-  dayDoneSub: { color: colors.textFaint, fontSize: 11, marginTop: 2 },
-  dayDoneBtn: { backgroundColor: colors.emerald, paddingHorizontal: 14, paddingVertical: 10, borderRadius: radius.md },
-  dayDoneBtnText: { color: '#fff', fontWeight: '800', fontSize: 12 },
 });

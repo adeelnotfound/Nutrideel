@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { haptics } from '../../utils/haptics';
 
 export type TabId = 'today' | 'history' | 'progress' | 'ai' | 'profile';
@@ -16,6 +16,8 @@ const TABS: { id: TabId; label: string; icon: keyof typeof Ionicons.glyphMap }[]
 ];
 
 function TabButton({ tab, isActive, onPress }: { tab: (typeof TABS)[number]; isActive: boolean; onPress: () => void }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const scale = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
@@ -44,6 +46,8 @@ function TabButton({ tab, isActive, onPress }: { tab: (typeof TABS)[number]; isA
 }
 
 export default function BottomTabBar({ activeTab, onChangeTab }: { activeTab: TabId; onChangeTab: (t: TabId) => void }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <SafeAreaView edges={['bottom']} style={styles.safe}>
       <View style={styles.row}>
@@ -55,7 +59,7 @@ export default function BottomTabBar({ activeTab, onChangeTab }: { activeTab: Ta
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   safe: { backgroundColor: colors.card, borderTopWidth: 1, borderTopColor: colors.border },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-around', height: 60 },
   tabBtn: { alignItems: 'center', justifyContent: 'center', flex: 1, gap: 2 },

@@ -2,10 +2,10 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Modal from '../common/Modal';
-import { colors, radius } from '../../theme';
+import { radius } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { MealType, FoodEntry } from '../../types';
 import { AIContextSnapshot, evaluateFoodServing, analyzeHypotheticalMeal } from '../../services/aiService';
-import { storage } from '../../services/storage';
 import { getSystemLocalISOString } from '../../utils/date';
 
 interface Props {
@@ -29,6 +29,8 @@ interface DraftItem {
 }
 
 export default function HypotheticalMealModal({ isOpen, onClose, contextSnapshot, onCommitMeal }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [description, setDescription] = useState('');
   const [addingItem, setAddingItem] = useState(false);
   const [items, setItems] = useState<DraftItem[]>([]);
@@ -51,7 +53,7 @@ export default function HypotheticalMealModal({ isOpen, onClose, contextSnapshot
     setAddingItem(true);
     setAnalysis(null);
     try {
-      const food = await evaluateFoodServing(description.trim(), 'hypothetical', storage.getAIModel());
+      const food = await evaluateFoodServing(description.trim(), 'hypothetical');
       setItems((prev) => [
         ...prev,
         {
@@ -113,8 +115,7 @@ export default function HypotheticalMealModal({ isOpen, onClose, contextSnapshot
           })),
           created_at: new Date().toISOString(),
         },
-        contextSnapshot,
-        storage.getAIModel()
+        contextSnapshot
       );
       setAnalysis(advice);
     } finally {
@@ -212,7 +213,7 @@ export default function HypotheticalMealModal({ isOpen, onClose, contextSnapshot
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   hint: { color: colors.textFaint, fontSize: 12, lineHeight: 17 },
   addRow: { flexDirection: 'row', gap: 8 },
   input: { flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: 12, color: colors.text, borderWidth: 1, borderColor: colors.border },

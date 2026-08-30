@@ -1,7 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius } from '../../theme';
+import { radius } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { Meal, WeightEntry, ActivityEntry, FastingEntry, UserProfile } from '../../types';
 import { formatSystemDisplayDate } from '../../utils/date';
 import FadeInView from '../common/FadeInView';
@@ -28,6 +29,8 @@ interface DaySummary {
 }
 
 export default function HistoryView({ meals, weights, activities, profile, onSelectDate }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [expandedDate, setExpandedDate] = useState<string | null>(null);
 
   const summaries = useMemo<DaySummary[]>(() => {
@@ -113,6 +116,8 @@ export default function HistoryView({ meals, weights, activities, profile, onSel
 }
 
 function MiniStat({ label, value }: { label: string; value: string }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <View style={styles.miniStat}>
       <Text style={styles.miniStatValue}>{value}</Text>
@@ -121,7 +126,7 @@ function MiniStat({ label, value }: { label: string; value: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   list: { padding: 14, paddingBottom: 100 },
   card: { backgroundColor: colors.card, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, marginBottom: 8, overflow: 'hidden' },
   row: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 14 },

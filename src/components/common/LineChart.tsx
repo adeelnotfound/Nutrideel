@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import Svg, { Polyline, Circle, Line, Text as SvgText } from 'react-native-svg';
-import { colors } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Point {
   label: string;
@@ -16,7 +16,10 @@ interface Props {
   targetLine?: number;
 }
 
-export default function LineChart({ data, color = colors.emerald, height = 160, unit = '', targetLine }: Props) {
+export default function LineChart({ data, color, height = 160, unit = '', targetLine }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
+  const lineColor = color ?? colors.emerald;
   const width = 320;
   const padding = 28;
 
@@ -76,10 +79,10 @@ export default function LineChart({ data, color = colors.emerald, height = 160, 
           />
         )}
 
-        <Polyline points={points} fill="none" stroke={color} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
+        <Polyline points={points} fill="none" stroke={lineColor} strokeWidth={2.5} strokeLinejoin="round" strokeLinecap="round" />
 
         {data.map((d, i) => (
-          <Circle key={i} cx={toX(i)} cy={toY(d.value)} r={3.5} fill={color} />
+          <Circle key={i} cx={toX(i)} cy={toY(d.value)} r={3.5} fill={lineColor} />
         ))}
 
         <SvgText x={padding} y={height - 6} fontSize={9} fill={colors.textFaint}>
@@ -93,7 +96,7 @@ export default function LineChart({ data, color = colors.emerald, height = 160, 
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   empty: { alignItems: 'center', justifyContent: 'center' },
   emptyText: { color: colors.textFaint, fontSize: 12 },
 });

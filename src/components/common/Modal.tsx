@@ -1,7 +1,8 @@
 import React from 'react';
 import { Modal as RNModal, View, Text, Pressable, StyleSheet, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius } from '../../theme';
+import { radius } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
   isOpen: boolean;
@@ -12,6 +13,8 @@ interface Props {
 }
 
 export default function Modal({ isOpen, onClose, title, children }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <RNModal visible={isOpen} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
@@ -35,7 +38,7 @@ export default function Modal({ isOpen, onClose, title, children }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
   sheetWrap: { maxHeight: '90%' },
   sheet: {

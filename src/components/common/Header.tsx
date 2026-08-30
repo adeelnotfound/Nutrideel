@@ -2,7 +2,7 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { formatSystemDisplayDate, getSystemLocalDateString } from '../../utils/date';
 
 interface Props {
@@ -12,6 +12,8 @@ interface Props {
 }
 
 export default function Header({ currentDate, onDateChange, streakCount }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const today = getSystemLocalDateString();
   const isToday = currentDate === today;
 
@@ -44,7 +46,7 @@ export default function Header({ currentDate, onDateChange, streakCount }: Props
         </View>
         {streakCount > 0 && (
           <View style={styles.streakPill}>
-            <Text style={styles.streakEmoji}>🔥</Text>
+            <Ionicons name="flame" size={14} color={colors.amber} />
             <Text style={styles.streakText}>{streakCount}</Text>
           </View>
         )}
@@ -53,7 +55,7 @@ export default function Header({ currentDate, onDateChange, streakCount }: Props
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   safe: { backgroundColor: colors.bg, borderBottomWidth: 1, borderBottomColor: colors.border },
   row: {
     flexDirection: 'row',
@@ -77,6 +79,5 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 999,
   },
-  streakEmoji: { fontSize: 14 },
   streakText: { color: colors.amber, fontWeight: '800', fontSize: 13 },
 });

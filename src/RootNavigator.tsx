@@ -3,6 +3,7 @@ import { View, StyleSheet } from 'react-native';
 import { FoodEntry, Meal, MealType, UserProfile, WeightEntry, ActivityEntry, FastingEntry } from './types';
 import { storage } from './services/storage';
 import { createAIContextSnapshot } from './services/aiService';
+import { maybeApplyAdaptiveGoals } from './services/adaptiveGoals';
 import { getSystemLocalDateString, getSystemLocalTimeString } from './utils/date';
 
 import Header from './components/common/Header';
@@ -21,11 +22,13 @@ import LogActivityModal from './components/modals/LogActivityModal';
 import LogFastingModal from './components/modals/LogFastingModal';
 import HypotheticalMealModal from './components/modals/HypotheticalMealModal';
 import DayDoneModal from './components/modals/DayDoneModal';
-import { colors } from './theme';
+import { useTheme } from './contexts/ThemeContext';
 import { useToast } from './components/common/ToastProvider';
 import { haptics } from './utils/haptics';
 
 export default function RootNavigator() {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const toast = useToast();
   const [profile, setProfile] = useState<UserProfile | null>(() => storage.getUserProfile());
   const [currentDate, setCurrentDate] = useState<string>(() => getSystemLocalDateString());
@@ -55,6 +58,23 @@ export default function RootNavigator() {
     });
     return unsubscribe;
   }, []);
+
+  const adaptiveCheckedRef = React.useRef(false);
+  useEffect(() => {
+    if (!profile || adaptiveCheckedRef.current) return;
+    adaptiveCheckedRef.current = true;
+    const result = maybeApplyAdaptiveGoals(profile, meals, weights, activities);
+    if (result.updated && result.newProfile) {
+      storage.saveProfile(result.newProfile);
+      setProfile(result.newProfile);
+      const direction = result.deltaKcal > 0 ? 'up' : 'down';
+      toast.show(
+        `Adaptive Goals: calorie target adjusted ${direction} to ${result.newProfile.calorie_target} kcal based on your recent trend`,
+        'info'
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profile?.id]);
 
   if (!profile) {
     return <OnboardingWizard onComplete={(newProfile) => setProfile(newProfile)} />;
@@ -350,7 +370,7 @@ export default function RootNavigator() {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   root: { flex: 1, backgroundColor: colors.bg },
   content: { flex: 1 },
 });

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
-import { colors, radius, cardShadow } from '../../theme';
+import { radius, cardShadow } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { Meal, WeightEntry, ActivityEntry, FastingEntry, UserProfile, TimeRangeFilter } from '../../types';
 import { calculateThermodynamicForecast, calculateDaysToGoal, calculateRecommendedTargets } from '../../utils/calculations';
 import { getSystemLocalDateString } from '../../utils/date';
@@ -23,6 +24,8 @@ const RANGES: { id: TimeRangeFilter; days: number; label: string }[] = [
 ];
 
 export default function ProgressView({ meals, weights, activities, profile }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [range, setRange] = useState<TimeRangeFilter>('1M');
 
   const rangeDays = RANGES.find((r) => r.id === range)?.days || 30;
@@ -139,6 +142,8 @@ export default function ProgressView({ meals, weights, activities, profile }: Pr
 }
 
 function SmallStat({ label, value, sub }: { label: string; value: string; sub: string }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <View style={styles.smallStat}>
       <Text style={styles.smallStatValue}>{value}</Text>
@@ -148,7 +153,7 @@ function SmallStat({ label, value, sub }: { label: string; value: string; sub: s
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   scroll: { padding: 14, paddingBottom: 100, gap: 12 },
   scrollOuter: { flexGrow: 1 },
   rangeRow: { flexDirection: 'row', gap: 8, marginBottom: 4 },

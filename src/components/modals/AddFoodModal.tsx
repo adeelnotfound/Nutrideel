@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, FlatList } from 'react-native';
+import { View, Text, TextInput, Pressable, StyleSheet, ActivityIndicator, FlatList, Image } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import Modal from '../common/Modal';
 import PromptModal from '../common/PromptModal';
-import { colors, radius } from '../../theme';
+import { radius } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { FoodEntry, MealType, SavedMeal } from '../../types';
 import { storage } from '../../services/storage';
-import { evaluateFoodServing, EvaluatedFoodResponse } from '../../services/aiService';
+import { evaluateFoodServing, evaluateFoodPhoto, EvaluatedFoodResponse } from '../../services/aiService';
 import { getSystemLocalISOString } from '../../utils/date';
 import { useToast } from '../common/ToastProvider';
 import { haptics } from '../../utils/haptics';
@@ -20,7 +22,7 @@ interface Props {
   onMealAdded: (items: Omit<FoodEntry, 'id'>[]) => void;
 }
 
-type Mode = 'quick' | 'manual' | 'saved' | 'combo';
+type Mode = 'quick' | 'photo' | 'manual' | 'saved' | 'combo';
 
 interface ComboItem {
   key: string;
@@ -36,6 +38,8 @@ interface ComboItem {
 }
 
 export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, onMealAdded }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const toast = useToast();
   const [mode, setMode] = useState<Mode>('quick');
   const [description, setDescription] = useState('');
@@ -47,6 +51,13 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
   const [manualProtein, setManualProtein] = useState('');
   const [manualCarbs, setManualCarbs] = useState('');
   const [manualFat, setManualFat] = useState('');
+
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [photoBase64, setPhotoBase64] = useState<string | null>(null);
+  const [photoMime, setPhotoMime] = useState<string>('image/jpeg');
+  const [photoNote, setPhotoNote] = useState('');
+  const [photoLoading, setPhotoLoading] = useState(false);
+  const [photoResult, setPhotoResult] = useState<EvaluatedFoodResponse | null>(null);
 
   const [comboDescription, setComboDescription] = useState('');
   const [comboLoading, setComboLoading] = useState(false);
@@ -69,6 +80,10 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
     setManualFat('');
     setComboDescription('');
     setComboItems([]);
+    setPhotoUri(null);
+    setPhotoBase64(null);
+    setPhotoNote('');
+    setPhotoResult(null);
   };
 
   const close = () => {
@@ -82,11 +97,65 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
     setLoading(true);
     setResult(null);
     try {
-      const res = await evaluateFoodServing(description.trim(), mealType, storage.getAIModel());
+      const res = await evaluateFoodServing(description.trim(), mealType);
       setResult(res);
     } finally {
       setLoading(false);
     }
+  };
+
+  const requestImage = async (fromCamera: boolean) => {
+    const permission = fromCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      toast.show(fromCamera ? 'Camera permission is needed to take a photo' : 'Photo library permission is needed', 'error');
+      return;
+    }
+    const result = fromCamera
+      ? await ImagePicker.launchCameraAsync({ quality: 0.6, base64: true, allowsEditing: true, aspect: [1, 1] })
+      : await ImagePicker.launchImageLibraryAsync({ quality: 0.6, base64: true, allowsEditing: true, aspect: [1, 1] });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    setPhotoUri(asset.uri);
+    setPhotoResult(null);
+    if (asset.base64) {
+      const mime = asset.mimeType || 'image/jpeg';
+      setPhotoBase64(asset.base64);
+      setPhotoMime(mime);
+      await analyzePhoto(asset.base64, mime);
+    }
+  };
+
+  const analyzePhoto = async (base64: string, mimeType: string) => {
+    setPhotoLoading(true);
+    setPhotoResult(null);
+    try {
+      const res = await evaluateFoodPhoto(base64, mimeType, mealType, photoNote.trim());
+      setPhotoResult(res);
+    } finally {
+      setPhotoLoading(false);
+    }
+  };
+
+  const commitPhotoResult = () => {
+    if (!photoResult) return;
+    const entry: FoodEntry = {
+      id: `f_${Date.now()}`,
+      food_name: photoResult.food_name,
+      quantity: photoResult.quantity || 1,
+      serving_size: photoResult.estimated_grams || photoResult.quantity || 1,
+      unit: photoResult.unit || 'portion',
+      calories: photoResult.calories,
+      protein: photoResult.protein,
+      carbs: photoResult.carbs,
+      fat: photoResult.fat,
+      fiber: photoResult.fiber,
+      source: 'logged',
+      created_at: getSystemLocalISOString(),
+    };
+    onFoodAdded(entry);
+    close();
   };
 
   const commitResult = () => {
@@ -153,7 +222,7 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
     if (!comboDescription.trim()) return;
     setComboLoading(true);
     try {
-      const food = await evaluateFoodServing(comboDescription.trim(), mealType, storage.getAIModel());
+      const food = await evaluateFoodServing(comboDescription.trim(), mealType);
       setComboItems((prev) => [
         ...prev,
         {
@@ -258,10 +327,10 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
         }}
       />
       <View style={styles.tabRow}>
-        {(['quick', 'manual', 'saved', 'combo'] as Mode[]).map((m) => (
+        {(['quick', 'photo', 'manual', 'saved', 'combo'] as Mode[]).map((m) => (
           <Pressable key={m} style={[styles.tabBtn, mode === m && styles.tabBtnActive]} onPress={() => setMode(m)}>
             <Text style={[styles.tabText, mode === m && styles.tabTextActive]}>
-              {m === 'quick' ? 'Describe' : m === 'manual' ? 'Manual' : m === 'saved' ? 'Saved' : 'Meals'}
+              {m === 'quick' ? 'Describe' : m === 'photo' ? 'Photo' : m === 'manual' ? 'Manual' : m === 'saved' ? 'Saved' : 'Meals'}
             </Text>
           </Pressable>
         ))}
@@ -293,8 +362,75 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
                 <MacroStat label="Fat" value={`${Math.round(result.fat)}g`} />
               </View>
               {!!result.nutritional_notes && <Text style={styles.notes}>{result.nutritional_notes}</Text>}
-              {result.fallback && <Text style={styles.fallbackNote}>Offline estimate — add a Gemini API key in Profile for AI-powered estimates.</Text>}
+              {result.fallback && <Text style={styles.fallbackNote}>Offline estimate — connect an AI provider in Profile for AI-powered estimates.</Text>}
               <Pressable style={styles.primaryBtn} onPress={commitResult}>
+                <Text style={styles.primaryBtnText}>Log This Food</Text>
+              </Pressable>
+            </View>
+          )}
+        </View>
+      )}
+
+      {mode === 'photo' && (
+        <View>
+          <Text style={styles.hint}>Snap or pick a photo of your food — AI identifies it and estimates nutrition from the portion shown.</Text>
+
+          <View style={styles.photoBtnRow}>
+            <Pressable style={styles.photoActionBtn} onPress={() => requestImage(true)}>
+              <Ionicons name="camera-outline" size={18} color={colors.emerald} />
+              <Text style={styles.photoActionText}>Take Photo</Text>
+            </Pressable>
+            <Pressable style={styles.photoActionBtn} onPress={() => requestImage(false)}>
+              <Ionicons name="images-outline" size={18} color={colors.emerald} />
+              <Text style={styles.photoActionText}>Choose Photo</Text>
+            </Pressable>
+          </View>
+
+          {photoUri && (
+            <>
+              <TextInput
+                style={[styles.input, { minHeight: 0, marginTop: 10 }]}
+                placeholder='Optional note — e.g. "no dressing" or "large portion"'
+                placeholderTextColor={colors.textFaint}
+                value={photoNote}
+                onChangeText={setPhotoNote}
+              />
+              <Pressable
+                style={styles.reanalyzeBtn}
+                onPress={() => photoBase64 && analyzePhoto(photoBase64, photoMime)}
+                disabled={photoLoading || !photoBase64}
+              >
+                <Ionicons name="refresh-outline" size={14} color={colors.emerald} />
+                <Text style={styles.reanalyzeBtnText}>Re-analyze with note</Text>
+              </Pressable>
+            </>
+          )}
+
+          {photoUri && (
+            <View style={styles.photoPreviewWrap}>
+              <Image source={{ uri: photoUri }} style={styles.photoPreview} />
+              {photoLoading && (
+                <View style={styles.photoLoadingOverlay}>
+                  <ActivityIndicator color="#fff" />
+                  <Text style={styles.photoLoadingText}>Analyzing photo…</Text>
+                </View>
+              )}
+            </View>
+          )}
+
+          {photoResult && !photoLoading && (
+            <View style={styles.resultCard}>
+              <Text style={styles.resultTitle}>{photoResult.food_name}</Text>
+              <Text style={styles.resultSub}>{photoResult.serving_description}</Text>
+              <View style={styles.macroGrid}>
+                <MacroStat label="Cal" value={Math.round(photoResult.calories)} />
+                <MacroStat label="Protein" value={`${Math.round(photoResult.protein)}g`} />
+                <MacroStat label="Carbs" value={`${Math.round(photoResult.carbs)}g`} />
+                <MacroStat label="Fat" value={`${Math.round(photoResult.fat)}g`} />
+              </View>
+              {!!photoResult.nutritional_notes && <Text style={styles.notes}>{photoResult.nutritional_notes}</Text>}
+              {photoResult.fallback && <Text style={styles.fallbackNote}>Offline estimate — connect an AI provider in Profile for AI-powered photo analysis.</Text>}
+              <Pressable style={styles.primaryBtn} onPress={commitPhotoResult}>
                 <Text style={styles.primaryBtnText}>Log This Food</Text>
               </Pressable>
             </View>
@@ -435,6 +571,8 @@ export default function AddFoodModal({ isOpen, onClose, mealType, onFoodAdded, o
 }
 
 function MacroStat({ label, value }: { label: string; value: string | number }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <View style={styles.macroStat}>
       <Text style={styles.macroStatValue}>{value}</Text>
@@ -444,6 +582,8 @@ function MacroStat({ label, value }: { label: string; value: string | number }) 
 }
 
 function LabeledInput(props: { label: string; value: string; onChangeText: (t: string) => void; placeholder?: string; keyboardType?: 'numeric' }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <View style={{ flex: 1 }}>
       <Text style={styles.fieldLabel}>{props.label}</Text>
@@ -459,7 +599,7 @@ function LabeledInput(props: { label: string; value: string; onChangeText: (t: s
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   tabRow: { flexDirection: 'row', gap: 6, marginBottom: 14 },
   tabBtn: { flex: 1, paddingVertical: 9, borderRadius: radius.md, backgroundColor: colors.cardAlt, alignItems: 'center' },
   tabBtnActive: { backgroundColor: colors.emeraldBg, borderWidth: 1, borderColor: colors.emerald },
@@ -498,4 +638,13 @@ const styles = StyleSheet.create({
   saveComboBtnText: { color: colors.emerald, fontWeight: '800', fontSize: 13 },
   sectionLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 8, textTransform: 'uppercase' },
   savedMealRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
+  photoBtnRow: { flexDirection: 'row', gap: 10 },
+  photoActionBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.emeraldBg, borderRadius: radius.md, paddingVertical: 12, borderWidth: 1, borderColor: colors.emerald },
+  photoActionText: { color: colors.emerald, fontWeight: '800', fontSize: 12.5 },
+  photoPreviewWrap: { marginTop: 12, borderRadius: radius.md, overflow: 'hidden', borderWidth: 1, borderColor: colors.border },
+  photoPreview: { width: '100%', height: 200, backgroundColor: colors.cardAlt },
+  photoLoadingOverlay: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  photoLoadingText: { color: '#fff', fontWeight: '700', fontSize: 12 },
+  reanalyzeBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 5, marginTop: 8, paddingVertical: 6 },
+  reanalyzeBtnText: { color: colors.emerald, fontWeight: '700', fontSize: 11.5 },
 });

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, Modal as RNModal, KeyboardAvoidingView, Platform } from 'react-native';
-import { colors, radius } from '../../theme';
+import { radius } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
   isOpen: boolean;
@@ -16,6 +17,8 @@ interface Props {
 // React Native's Alert.prompt only exists on iOS — Android has no built-in equivalent,
 // so this is a small cross-platform replacement for "type a name and confirm" flows.
 export default function PromptModal({ isOpen, title, message, placeholder, initialValue, confirmLabel = 'Save', onCancel, onConfirm }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [value, setValue] = useState(initialValue || '');
 
   useEffect(() => {
@@ -55,7 +58,7 @@ export default function PromptModal({ isOpen, title, message, placeholder, initi
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'center', padding: 24 },
   card: { backgroundColor: colors.card, borderRadius: radius.lg, padding: 18, borderWidth: 1, borderColor: colors.border },
   title: { color: colors.text, fontSize: 15, fontWeight: '800' },

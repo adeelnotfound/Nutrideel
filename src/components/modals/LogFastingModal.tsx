@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView } from 'react-native';
 import Modal from '../common/Modal';
-import { colors, radius } from '../../theme';
+import { radius } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { FastingEntry, FastingReason } from '../../types';
 import { getSystemLocalISOString } from '../../utils/date';
 
@@ -17,6 +18,8 @@ interface Props {
 const REASONS: FastingReason[] = ['intermittent', 'religious', 'medical', 'personal', 'other'];
 
 export default function LogFastingModal({ isOpen, onClose, currentDate, existingFast, onSaveFasting, onDeleteFasting }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [hours, setHours] = useState(existingFast ? String(existingFast.duration_hours) : '16');
   const [reason, setReason] = useState<FastingReason>(existingFast?.reason || 'intermittent');
   const [notes, setNotes] = useState(existingFast?.notes || '');
@@ -84,7 +87,7 @@ export default function LogFastingModal({ isOpen, onClose, currentDate, existing
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   label: { color: colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 6 },
   bigInput: { backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: 14, color: colors.text, fontSize: 20, fontWeight: '800', borderWidth: 1, borderColor: colors.border },
   input: { backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: 12, color: colors.text, borderWidth: 1, borderColor: colors.border },

@@ -1,4 +1,5 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import {
   DailyLog,
   FoodEntry,
@@ -12,6 +13,8 @@ import {
   AIMessage,
   NotificationSettings,
 } from '../types';
+import { ThemeId, defaultThemeId } from '../theme';
+import { AI_PROVIDERS, OFFLINE_PROVIDER_ID, getDefaultModelFor } from './aiProviders';
 
 const STORAGE_KEYS = {
   PROFILE: 'calorie_app_profile',
@@ -25,9 +28,43 @@ const STORAGE_KEYS = {
   AI_CHAT: 'calorie_app_ai_chat',
   NOTIFICATIONS: 'calorie_app_notifications',
   THEME: 'calorie_app_theme',
-  GEMINI_KEY: 'calorie_app_gemini_key',
-  GEMINI_MODEL: 'calorie_app_gemini_model',
+  AI_PROVIDER: 'calorie_app_ai_provider',
+  AI_MODEL_BY_PROVIDER: 'calorie_app_ai_model_by_provider',
+  AI_CUSTOM_BASE_URL: 'calorie_app_ai_custom_base_url',
+  ADAPTIVE_GOALS_ENABLED: 'calorie_app_adaptive_goals_enabled',
+  ADAPTIVE_GOALS_LAST_CHECK: 'calorie_app_adaptive_goals_last_check',
+  ADAPTIVE_GOALS_LAST_MODEL: 'calorie_app_adaptive_goals_last_model',
 };
+
+// Secure-store key prefix for per-provider API keys. Each provider's key is stored
+// under its own SecureStore entry (encrypted, device-keychain-backed) rather than in
+// the plain AsyncStorage cache used for the rest of the app's data.
+const SECURE_KEY_PREFIX = 'nutrideel_ai_key_';
+
+// SecureStore is async-only and native-module-backed, so — like AsyncStorage — we keep
+// an in-memory cache of API keys hydrated at boot, and mirror every write straight to
+// the device keychain in the background.
+const secureKeyCache: Record<string, string> = {};
+
+async function hydrateSecureKeys(): Promise<void> {
+  try {
+    const results = await Promise.all(
+      AI_PROVIDERS.map(async (p) => {
+        try {
+          const val = await SecureStore.getItemAsync(SECURE_KEY_PREFIX + p.id);
+          return [p.id, val || ''] as const;
+        } catch {
+          return [p.id, ''] as const;
+        }
+      })
+    );
+    results.forEach(([id, val]) => {
+      if (val) secureKeyCache[id] = val;
+    });
+  } catch (e) {
+    console.warn('Secure key hydration failed:', e);
+  }
+}
 
 // ----------------- In-memory synchronous cache, hydrated from AsyncStorage at boot ----------------- //
 // Native storage (AsyncStorage) is async-only, but the rest of the app (ported from the web
@@ -74,6 +111,7 @@ export async function hydrateStorage(): Promise<void> {
   } catch (e) {
     console.warn('Storage hydration failed:', e);
   }
+  await hydrateSecureKeys();
   hydrated = true;
 }
 
@@ -94,6 +132,38 @@ const genId = (prefix: string) => `${prefix}_${Date.now()}_${Math.random().toStr
 // ----------------- Core Storage Methods ----------------- //
 
 export const storage = {
+  getTheme(): ThemeId {
+    return readCache<ThemeId>(STORAGE_KEYS.THEME, defaultThemeId);
+  },
+
+  saveTheme(themeId: ThemeId): void {
+    writeCache(STORAGE_KEYS.THEME, themeId);
+  },
+
+  getAdaptiveGoalsEnabled(): boolean {
+    return readCache<boolean>(STORAGE_KEYS.ADAPTIVE_GOALS_ENABLED, false);
+  },
+
+  saveAdaptiveGoalsEnabled(enabled: boolean): void {
+    writeCache(STORAGE_KEYS.ADAPTIVE_GOALS_ENABLED, enabled);
+  },
+
+  getAdaptiveGoalsLastCheck(): string | null {
+    return readCache<string | null>(STORAGE_KEYS.ADAPTIVE_GOALS_LAST_CHECK, null);
+  },
+
+  saveAdaptiveGoalsLastCheck(dateStr: string): void {
+    writeCache(STORAGE_KEYS.ADAPTIVE_GOALS_LAST_CHECK, dateStr);
+  },
+
+  getAdaptiveGoalsLastModel(): any | null {
+    return readCache<any | null>(STORAGE_KEYS.ADAPTIVE_GOALS_LAST_MODEL, null);
+  },
+
+  saveAdaptiveGoalsLastModel(model: any): void {
+    writeCache(STORAGE_KEYS.ADAPTIVE_GOALS_LAST_MODEL, model);
+  },
+
   getProfile(): UserProfile | null {
     const parsed = readCache<UserProfile | null>(STORAGE_KEYS.PROFILE, null);
     if (parsed && (parsed.id === 'user_default' || !parsed.onboarding_completed)) {
@@ -414,20 +484,62 @@ export const storage = {
     writeCache(STORAGE_KEYS.NOTIFICATIONS, notifs);
   },
 
-  getGeminiApiKey(): string {
-    return readCache<string>(STORAGE_KEYS.GEMINI_KEY, '');
+  // ----------------- Multi-provider AI settings ----------------- //
+  // Which provider is active, which model is selected per-provider (so switching
+  // providers and back remembers your choice), and a custom base URL for the
+  // "Custom Endpoint" provider. API keys themselves are NOT stored here — see
+  // getAIKeyFor/saveAIKeyFor below, which use encrypted SecureStore instead.
+
+  getAIProvider(): string {
+    return readCache<string>(STORAGE_KEYS.AI_PROVIDER, OFFLINE_PROVIDER_ID);
   },
 
-  saveGeminiApiKey(key: string): void {
-    writeCache(STORAGE_KEYS.GEMINI_KEY, key);
+  saveAIProvider(providerId: string): void {
+    writeCache(STORAGE_KEYS.AI_PROVIDER, providerId);
   },
 
-  getAIModel(): string {
-    return readCache<string>(STORAGE_KEYS.GEMINI_MODEL, 'gemini-3.7-flash');
+  getSelectedModel(providerId: string): string {
+    const byProvider = readCache<Record<string, string>>(STORAGE_KEYS.AI_MODEL_BY_PROVIDER, {});
+    return byProvider[providerId] || getDefaultModelFor(providerId);
   },
 
-  saveAIModel(model: string): void {
-    writeCache(STORAGE_KEYS.GEMINI_MODEL, model);
+  saveSelectedModel(providerId: string, modelId: string): void {
+    const byProvider = readCache<Record<string, string>>(STORAGE_KEYS.AI_MODEL_BY_PROVIDER, {});
+    writeCache(STORAGE_KEYS.AI_MODEL_BY_PROVIDER, { ...byProvider, [providerId]: modelId });
+  },
+
+  getCustomBaseUrl(): string {
+    return readCache<string>(STORAGE_KEYS.AI_CUSTOM_BASE_URL, '');
+  },
+
+  saveCustomBaseUrl(url: string): void {
+    writeCache(STORAGE_KEYS.AI_CUSTOM_BASE_URL, url.trim().replace(/\/+$/, ''));
+  },
+
+  getAIKeyFor(providerId: string): string {
+    return secureKeyCache[providerId] || '';
+  },
+
+  saveAIKeyFor(providerId: string, key: string): void {
+    const trimmed = key.trim();
+    if (trimmed) {
+      secureKeyCache[providerId] = trimmed;
+      SecureStore.setItemAsync(SECURE_KEY_PREFIX + providerId, trimmed).catch((e) =>
+        console.warn(`Failed to persist secure key for ${providerId}:`, e)
+      );
+    } else {
+      delete secureKeyCache[providerId];
+      SecureStore.deleteItemAsync(SECURE_KEY_PREFIX + providerId).catch(() => {});
+    }
+    notifyListeners();
+  },
+
+  clearAIKeyFor(providerId: string): void {
+    this.saveAIKeyFor(providerId, '');
+  },
+
+  hasAnyAIKeyConfigured(): boolean {
+    return Object.values(secureKeyCache).some((v) => !!v);
   },
 
   async clearAllData(): Promise<void> {
@@ -437,6 +549,16 @@ export const storage = {
       await AsyncStorage.multiRemove(keys);
     } catch (e) {
       console.warn('Clear all data error:', e);
+    }
+    try {
+      await Promise.all(
+        AI_PROVIDERS.map(async (p) => {
+          delete secureKeyCache[p.id];
+          await SecureStore.deleteItemAsync(SECURE_KEY_PREFIX + p.id).catch(() => {});
+        })
+      );
+    } catch (e) {
+      console.warn('Clear secure keys error:', e);
     }
     notifyListeners();
   },

@@ -1,7 +1,8 @@
 import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
 import { Animated, Text, StyleSheet, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius } from '../../theme';
+import { radius } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 
 type ToastKind = 'success' | 'error' | 'info';
 
@@ -28,13 +29,14 @@ export function useToast(): ToastContextValue {
   return ctx;
 }
 
-const ICONS: Record<ToastKind, { name: keyof typeof Ionicons.glyphMap; color: string }> = {
-  success: { name: 'checkmark-circle', color: colors.emerald },
-  error: { name: 'alert-circle', color: colors.rose },
-  info: { name: 'information-circle', color: colors.sky },
-};
-
 export function ToastProvider({ children }: { children: React.ReactNode }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
+  const ICONS: Record<ToastKind, { name: keyof typeof Ionicons.glyphMap; color: string }> = {
+    success: { name: 'checkmark-circle', color: colors.emerald },
+    error: { name: 'alert-circle', color: colors.rose },
+    info: { name: 'information-circle', color: colors.sky },
+  };
   const [toast, setToast] = useState<ToastState | null>(null);
   const opacity = useRef(new Animated.Value(0)).current;
   const translateY = useRef(new Animated.Value(12)).current;
@@ -85,7 +87,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   wrap: { position: 'absolute', left: 16, right: 16, bottom: 84, alignItems: 'center' },
   toast: {
     flexDirection: 'row',

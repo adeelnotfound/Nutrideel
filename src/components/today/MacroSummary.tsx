@@ -1,8 +1,10 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { colors, radius, cardShadow } from '../../theme';
+import { radius, cardShadow } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import ProgressBar from '../common/ProgressBar';
+import ProgressRing from '../common/ProgressRing';
 import { FastingEntry, WeightEntry, WeightUnit } from '../../types';
 import { convertWeightFromKg } from '../../utils/calculations';
 
@@ -45,32 +47,42 @@ export default function MacroSummary({
   onOpenFastingModal,
   onOpenDayDone,
 }: Props) {
-  const caloriesRemaining = Math.max(0, calorieTarget - caloriesConsumed);
-  const isOver = caloriesConsumed > calorieTarget && calorieTarget > 0;
-  const calPercent = Math.min(100, Math.round((caloriesConsumed / (calorieTarget || 1)) * 100));
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
+
+  // MFP-style budget: goal + exercise earns you extra room, food spends it.
+  const adjustedBudget = calorieTarget + activeCaloriesBurned;
+  const caloriesRemaining = Math.max(0, adjustedBudget - caloriesConsumed);
+  const isOver = caloriesConsumed > adjustedBudget && calorieTarget > 0;
+  const calPercent = Math.round((caloriesConsumed / (adjustedBudget || 1)) * 100);
+  const ringPercent = Math.min(100, calPercent);
 
   return (
     <View style={styles.card}>
       <View style={styles.topRow}>
-        <View style={{ flex: 1 }}>
+        <ProgressRing
+          size={92}
+          strokeWidth={9}
+          pct={ringPercent}
+          color={isOver ? colors.amber : colors.emerald}
+          trackColor={colors.cardAlt}
+        >
+          <Text style={styles.ringValue}>{isOver ? `+${Math.round(caloriesConsumed - adjustedBudget)}` : Math.round(caloriesRemaining)}</Text>
+          <Text style={styles.ringLabel}>{isOver ? 'over' : 'left'}</Text>
+        </ProgressRing>
+
+        <View style={styles.budgetBreakdown}>
           <Text style={styles.label}>DAILY CALORIE BUDGET</Text>
-          <View style={styles.calRow}>
-            <Text style={styles.calBig}>{caloriesConsumed.toLocaleString()}</Text>
-            <Text style={styles.calTarget}> / {calorieTarget.toLocaleString()} kcal</Text>
-          </View>
-          <Text style={[styles.calStatus, { color: isOver ? colors.amber : colors.emerald }]}>
-            {isOver ? `+${caloriesConsumed - calorieTarget} kcal over target` : `${caloriesRemaining.toLocaleString()} kcal remaining`}
-          </Text>
+          <BudgetLine label="Goal" value={calorieTarget} icon="flag-outline" />
+          <BudgetLine label="Food" value={caloriesConsumed} icon="restaurant-outline" sign="-" />
+          <BudgetLine label="Exercise" value={activeCaloriesBurned} icon="flame-outline" sign="+" />
         </View>
-        <Pressable onPress={onOpenDayDone} style={styles.dayDoneBtn}>
-          <Text style={styles.dayDoneText}>✨ Day Done</Text>
-        </Pressable>
       </View>
 
-      <View style={styles.progressOuter}>
-        <ProgressBar pct={calPercent} color={isOver ? colors.amber : colors.emerald} height={10} />
-        <Text style={styles.pctText}>{calPercent}%</Text>
-      </View>
+      <Pressable onPress={onOpenDayDone} style={styles.dayDoneBtn}>
+        <Ionicons name="checkmark-circle-outline" size={16} color={colors.emerald} />
+        <Text style={styles.dayDoneText}>Mark day done</Text>
+      </Pressable>
 
       <View style={styles.macroRow}>
         <MacroCol label="Protein" consumed={proteinConsumed} target={proteinTarget} color={colors.sky} />
@@ -112,7 +124,21 @@ export default function MacroSummary({
   );
 }
 
+function BudgetLine({ label, value, icon, sign }: { label: string; value: number; icon: any; sign?: '+' | '-' }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
+  return (
+    <View style={styles.budgetLine}>
+      <Ionicons name={icon} size={13} color={colors.textFaint} style={{ width: 16 }} />
+      <Text style={styles.budgetLabel}>{label}</Text>
+      <Text style={styles.budgetValue}>{sign ? `${sign} ` : ''}{Math.round(value).toLocaleString()}</Text>
+    </View>
+  );
+}
+
 function MacroCol({ label, consumed, target, color }: { label: string; consumed: number; target: number; color: string }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const pct = target > 0 ? (consumed / target) * 100 : 0;
   return (
     <View style={{ flex: 1 }}>
@@ -127,23 +153,23 @@ function MacroCol({ label, consumed, target, color }: { label: string; consumed:
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   card: { backgroundColor: colors.card, borderRadius: radius.xl, padding: 18, borderWidth: 1, borderColor: colors.border, ...cardShadow },
-  topRow: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', paddingBottom: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
-  label: { fontSize: 11, fontWeight: '700', color: colors.textMuted, letterSpacing: 0.5 },
-  calRow: { flexDirection: 'row', alignItems: 'baseline', marginTop: 4 },
-  calBig: { fontSize: 32, fontWeight: '800', color: colors.text },
-  calTarget: { fontSize: 15, color: colors.textMuted, fontWeight: '600' },
-  calStatus: { fontSize: 12, fontWeight: '700', marginTop: 2 },
-  dayDoneBtn: { backgroundColor: colors.emeraldBg, borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 9, borderWidth: 1, borderColor: colors.emerald },
-  dayDoneText: { color: colors.emerald, fontSize: 12, fontWeight: '800' },
-  progressOuter: { marginTop: 14, marginBottom: 4 },
-  pctText: { fontSize: 10, color: colors.textFaint, marginTop: 4, textAlign: 'right' },
-  macroRow: { flexDirection: 'row', gap: 14, paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: colors.border },
+  topRow: { flexDirection: 'row', alignItems: 'center', gap: 16, paddingBottom: 14, borderBottomWidth: 1, borderBottomColor: colors.border },
+  ringValue: { fontSize: 20, fontWeight: '800', color: colors.text },
+  ringLabel: { fontSize: 10, fontWeight: '700', color: colors.textFaint, textTransform: 'uppercase', letterSpacing: 0.4 },
+  budgetBreakdown: { flex: 1, gap: 6 },
+  label: { fontSize: 11, fontWeight: '700', color: colors.textMuted, letterSpacing: 0.5, marginBottom: 2 },
+  budgetLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  budgetLabel: { flex: 1, fontSize: 12.5, color: colors.textMuted, fontWeight: '600' },
+  budgetValue: { fontSize: 12.5, color: colors.text, fontWeight: '700' },
+  dayDoneBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: colors.emeraldBg, borderRadius: radius.md, paddingVertical: 9, marginTop: 12, borderWidth: 1, borderColor: colors.emerald },
+  dayDoneText: { color: colors.emerald, fontSize: 12.5, fontWeight: '800' },
+  macroRow: { flexDirection: 'row', gap: 14, paddingVertical: 16, borderTopWidth: 1, borderTopColor: colors.border, marginTop: 14 },
   macroHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 },
   macroLabel: { fontSize: 11, fontWeight: '700', color: colors.text },
   macroValue: { fontSize: 10, color: colors.textMuted, fontWeight: '600' },
-  vitalsRow: { flexDirection: 'row', gap: 8, paddingTop: 14 },
+  vitalsRow: { flexDirection: 'row', gap: 8 },
   vitalBtn: { flex: 1, backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: 10, borderWidth: 1, borderColor: colors.border },
   vitalHeader: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   vitalLabel: { fontSize: 11, fontWeight: '700', color: colors.textMuted },

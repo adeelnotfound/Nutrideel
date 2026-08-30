@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet } from 'react-native';
 import Modal from '../common/Modal';
-import { colors, radius } from '../../theme';
+import { radius } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { WeightEntry, WeightUnit } from '../../types';
 import { convertWeightFromKg, convertWeightToKg } from '../../utils/calculations';
 import { getSystemLocalISOString } from '../../utils/date';
@@ -18,6 +19,8 @@ interface Props {
 }
 
 export default function LogWeightModal({ isOpen, onClose, currentDate, userWeightUnit, lastWeightKg, existingWeight, onSaveWeight, onDeleteWeight }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [value, setValue] = useState('');
   const [notes, setNotes] = useState('');
 
@@ -89,7 +92,7 @@ export default function LogWeightModal({ isOpen, onClose, currentDate, userWeigh
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   label: { color: colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 6 },
   bigInput: { backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: 14, color: colors.text, fontSize: 22, fontWeight: '800', borderWidth: 1, borderColor: colors.border },
   input: { backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: 12, color: colors.text, borderWidth: 1, borderColor: colors.border },

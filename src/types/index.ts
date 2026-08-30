@@ -201,7 +201,7 @@ export interface AIMessage {
   evidence?: string;
   suggestion?: string;
   timestamp: string;
-  source?: 'gemini_api' | 'local_fallback' | 'local_heuristic';
+  source?: 'ai_api' | 'local_fallback' | 'local_heuristic';
   model_used?: string;
   fallback_reason?: string;
   error_details?: string;

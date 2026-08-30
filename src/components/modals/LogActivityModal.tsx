@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, Pressable, StyleSheet, ScrollView } from 'react-native';
 import Modal from '../common/Modal';
-import { colors, radius } from '../../theme';
+import { radius } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 import { ActivityEntry, ActivityType } from '../../types';
 import { getSystemLocalISOString } from '../../utils/date';
 
@@ -17,6 +18,8 @@ interface Props {
 const TYPES: ActivityType[] = ['walking', 'running', 'cycling', 'gym', 'swimming', 'sports', 'custom'];
 
 export default function LogActivityModal({ isOpen, onClose, currentDate, existingActivities, onSaveActivity, onDeleteActivity }: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const [type, setType] = useState<ActivityType>('walking');
   const [name, setName] = useState('');
   const [steps, setSteps] = useState('');
@@ -92,6 +95,8 @@ export default function LogActivityModal({ isOpen, onClose, currentDate, existin
 }
 
 function Field(props: { label: string; value: string; onChangeText: (t: string) => void }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <View style={{ flex: 1 }}>
       <Text style={styles.label}>{props.label}</Text>
@@ -107,7 +112,7 @@ function Field(props: { label: string; value: string; onChangeText: (t: string) 
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   label: { color: colors.textMuted, fontSize: 11, fontWeight: '700', marginBottom: 6 },
   input: { backgroundColor: colors.cardAlt, borderRadius: radius.md, padding: 12, color: colors.text, borderWidth: 1, borderColor: colors.border },
   row2: { flexDirection: 'row', gap: 10 },

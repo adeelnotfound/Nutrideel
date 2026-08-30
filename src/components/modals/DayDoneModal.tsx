@@ -1,7 +1,9 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import Modal from '../common/Modal';
-import { colors, radius, cardShadow } from '../../theme';
+import { radius, cardShadow } from '../../theme';
+import { useTheme } from '../../contexts/ThemeContext';
 
 interface Props {
   isOpen: boolean;
@@ -21,6 +23,8 @@ interface Props {
 }
 
 export default function DayDoneModal(props: Props) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   const delta = props.caloriesConsumed - props.calorieTarget;
   const isOver = delta > 0;
 
@@ -28,7 +32,7 @@ export default function DayDoneModal(props: Props) {
     <Modal isOpen={props.isOpen} onClose={props.onClose} title="Day Summary">
       <View style={{ gap: 14 }}>
         <View style={styles.heroCard}>
-          <Text style={styles.heroEmoji}>{isOver ? '⚠️' : '✅'}</Text>
+          <Ionicons name={isOver ? 'alert-circle' : 'checkmark-circle'} size={34} color={isOver ? colors.amber : colors.emerald} style={styles.heroEmoji} />
           <Text style={styles.heroTitle}>
             {isOver ? `${delta} kcal over target` : `${Math.abs(delta)} kcal under target`}
           </Text>
@@ -63,6 +67,8 @@ export default function DayDoneModal(props: Props) {
 }
 
 function Stat({ label, value, target }: { label: string; value: string; target: string }) {
+  const { colors } = useTheme();
+  const styles = makeStyles(colors);
   return (
     <View style={styles.statCard}>
       <Text style={styles.statLabel}>{label}</Text>
@@ -73,7 +79,7 @@ function Stat({ label, value, target }: { label: string; value: string; target: 
   );
 }
 
-const styles = StyleSheet.create({
+const makeStyles = (colors: any) => StyleSheet.create({
   heroCard: { backgroundColor: colors.cardAlt, borderRadius: radius.lg, padding: 18, alignItems: 'center', ...cardShadow },
   heroEmoji: { fontSize: 28, marginBottom: 6 },
   heroTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
