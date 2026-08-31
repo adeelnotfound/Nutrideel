@@ -425,6 +425,19 @@ async function callGeminiFormat(baseUrl: string, model: string, apiKey: string, 
   }
   const body: any = {
     contents: [...historyContents, { role: 'user', parts: userParts }],
+    // Gemini 3.x models ('gemini-3.x-...') think by default before answering, and
+    // thinking tokens are deducted from the SAME maxOutputTokens budget as the final
+    // answer. With no explicit budget, a thinking-heavy model (3.7 Flash, 3.1 Pro
+    // especially) can spend its entire output budget reasoning and return an EMPTY
+    // text response with finishReason: MAX_TOKENS — which looks identical to a real
+    // failure and was previously read as "empty response" -> silent offline fallback.
+    // Capping thinking to 'low' and giving a generous explicit output budget fixes
+    // this for the models that were actually failing, without touching non-thinking
+    // (2.x/legacy) models which simply ignore an unrecognized generationConfig field.
+    generationConfig: {
+      maxOutputTokens: 4096,
+      ...(model.startsWith('gemini-3') ? { thinkingConfig: { thinkingLevel: 'low' } } : {}),
+    },
   };
   if (opts.systemPrompt) {
     // Gemini's `contents`/`systemInstruction` Content objects only accept role
@@ -448,6 +461,14 @@ async function callGeminiFormat(baseUrl: string, model: string, apiKey: string, 
     throw err;
   }
   const text = data?.candidates?.[0]?.content?.parts?.map((p: any) => p.text).join('') || '';
+  if (!text) {
+    const finishReason = data?.candidates?.[0]?.finishReason;
+    if (finishReason === 'MAX_TOKENS') {
+      // Thinking consumed the whole output budget before any answer text was produced.
+      // Surfaced distinctly so this doesn't read as a generic/unexplained empty response.
+      throw new Error('Response cut off by thinking budget (MAX_TOKENS) — try again or use a lower thinking level');
+    }
+  }
   return { text };
 }
 

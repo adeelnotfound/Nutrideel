@@ -9,7 +9,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](./LICENSE)
 [![Made with Expo](https://img.shields.io/badge/Made%20with-Expo-000020?logo=expo)](https://expo.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Version](https://img.shields.io/badge/version-1.4.2-blue.svg)](./RELEASE_NOTES.md)
+[![Version](https://img.shields.io/badge/version-1.2.2-blue.svg)](./RELEASE_NOTES.md)
 
 </div>
 
