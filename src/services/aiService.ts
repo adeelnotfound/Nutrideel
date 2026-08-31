@@ -544,6 +544,33 @@ async function callAnthropicFormat(baseUrl: string, model: string, apiKey: strin
 // Central entry point every AI-powered feature routes through. Resolves the user's
 // currently selected provider + model + key from storage, dispatches to the matching
 // request shape, and drops images silently for providers/models that don't support vision.
+// Transient-error retry: providers occasionally return 429 (rate limited) or 503/529
+// (overloaded) for a request that would otherwise succeed a moment later. Retrying with
+// short exponential backoff (1s, 2s, 4s) resolves these invisibly instead of immediately
+// falling back to a second provider or offline over what was just a brief spike.
+const RETRYABLE_STATUS = new Set([429, 503, 529]);
+const RETRY_DELAYS_MS = [1000, 2000, 4000];
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function withRetry<T>(fn: () => Promise<T>): Promise<T> {
+  let lastErr: any;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      return await fn();
+    } catch (err: any) {
+      lastErr = err;
+      const retryable = RETRYABLE_STATUS.has(err?.status);
+      const attemptsLeft = attempt < RETRY_DELAYS_MS.length;
+      if (!retryable || !attemptsLeft) throw err;
+      await delay(RETRY_DELAYS_MS[attempt]);
+    }
+  }
+  throw lastErr;
+}
+
 async function callAIProvider(opts: AICallOptions, providerIdOverride?: string): Promise<{ text: string }> {
   const providerId = providerIdOverride || storage.getAIProvider();
   if (providerId === 'offline') {
@@ -567,13 +594,15 @@ async function callAIProvider(opts: AICallOptions, providerIdOverride?: string):
 
   const canSendImage = modelSupportsVision(providerId, model);
 
-  if (def.apiFormat === 'gemini') {
-    return callGeminiFormat(baseUrl, model, apiKey, opts);
-  }
-  if (def.apiFormat === 'anthropic') {
-    return callAnthropicFormat(baseUrl, model, apiKey, opts, canSendImage);
-  }
-  return callOpenAIFormat(baseUrl, model, apiKey, opts, canSendImage);
+  return withRetry(() => {
+    if (def.apiFormat === 'gemini') {
+      return callGeminiFormat(baseUrl, model, apiKey, opts);
+    }
+    if (def.apiFormat === 'anthropic') {
+      return callAnthropicFormat(baseUrl, model, apiKey, opts, canSendImage);
+    }
+    return callOpenAIFormat(baseUrl, model, apiKey, opts, canSendImage);
+  });
 }
 
 // Wraps callAIProvider with a single automatic retry against the user's configured fallback
